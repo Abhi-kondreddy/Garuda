@@ -417,6 +417,10 @@ export interface AppSettings {
   autoplay: boolean
   recentLimit: number
   confirmDelete: boolean
+  /** Optional HuggingFace token for gated voice models (pyannote). */
+  huggingfaceToken?: string
+  /** Allow downloading large voice ML models on first use. */
+  downloadVoiceModels?: boolean
 }
 
 export interface DataStats {
@@ -435,5 +439,86 @@ export const DEFAULT_SETTINGS: AppSettings = {
   whisperModel: 'tiny',
   autoplay: true,
   recentLimit: 8,
-  confirmDelete: true
+  confirmDelete: true,
+  huggingfaceToken: '',
+  downloadVoiceModels: true
+}
+
+/** ---- Voices / Render ---- */
+
+export interface SpeakerSegment {
+  start: number
+  end: number
+}
+
+export interface SpeakerInfo {
+  id: string
+  label: string
+  color: string
+  durationSec: number
+  stemPath: string
+  segments: SpeakerSegment[]
+}
+
+export interface SpeakersManifest {
+  version: 1
+  createdAt: string
+  audioPath: string
+  residualPath: string | null
+  mode: 'separated' | 'masked'
+  warning?: string | null
+  speakers: SpeakerInfo[]
+}
+
+export interface VoiceFxParams {
+  gainDb: number
+  bassDb: number
+  clarityDb: number
+  presenceDb: number
+  compress: number
+  deess: number
+  gate: number
+  mlEnhance: boolean
+}
+
+export const DEFAULT_VOICE_FX: VoiceFxParams = {
+  gainDb: 0,
+  bassDb: 0,
+  clarityDb: 0,
+  presenceDb: 0,
+  compress: 0,
+  deess: 0,
+  gate: 0,
+  mlEnhance: false
+}
+
+export interface VoicesProject {
+  version: 1
+  reportDir: string
+  speakersPath: string
+  previewMixPath: string | null
+  fx: Record<string, VoiceFxParams>
+}
+
+export type RenderOp =
+  | { type: 'audioRemix'; projectPath: string }
+  | { type: 'muxVideo'; videoPath: string; audioPath: string }
+  | { type: 'timelineCuts'; cuts: Array<{ start: number; end: number }> }
+  | { type: 'colorGrade'; lut?: string; params?: Record<string, number> }
+
+export interface RenderJob {
+  id: string
+  reportId: string
+  ops: RenderOp[]
+  status: 'queued' | 'running' | 'done' | 'error'
+  progress: number
+  outputPath?: string
+  error?: string
+}
+
+export interface VoicesProgressEvent {
+  type: 'progress'
+  stage: string
+  percent: number
+  message: string
 }

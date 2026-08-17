@@ -10,6 +10,8 @@ interface Props {
   /** Bumps on every explicit seek click so we re-apply even to the same time. */
   seekToken?: number
   autoplay?: boolean
+  /** When set, mute video and sync this audio track to the playhead. */
+  audioOverridePath?: string | null
 }
 
 function fmt(sec: number): string {
@@ -25,10 +27,13 @@ export default function VideoPlayer({
   onTimeUpdate,
   label,
   seekToken = 0,
-  autoplay = false
+  autoplay = false,
+  audioOverridePath = null
 }: Props) {
   const ref = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const [src, setSrc] = useState<string | null>(null)
+  const [audioSrc, setAudioSrc] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const suppressUpdates = useRef(false)
   const lastToken = useRef(-1)
@@ -57,7 +62,29 @@ export default function VideoPlayer({
   }, [sourcePath])
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!audioOverridePath) {
+        setAudioSrc(null)
+        return
+      }
+      const url = await window.garuda.mediaUrl(audioOverridePath)
+      if (!cancelled) setAudioSrc(url)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [audioOverridePath])
+
+  useEffect(() => {
     const v = ref.current
+    if (!v) return
+    v.muted = Boolean(audioSrc)
+  }, [audioSrc])
+
+  useEffect(() => {
+    const v = ref.current
+    const a = audioRef.current
     if (!v || !src) return
 
     const target = Math.max(0, Number(currentTime) || 0)
@@ -65,7 +92,6 @@ export default function VideoPlayer({
     const forced = seekToken !== lastToken.current
     if (forced) lastToken.current = seekToken
 
-    // Skip tiny drifts from timeupdate unless this was an explicit click
     if (!forced && Math.abs(v.currentTime - target) < 0.25) return
 
     let cancelled = false
@@ -74,11 +100,17 @@ export default function VideoPlayer({
       if (cancelled) return
       suppressUpdates.current = false
       onTimeUpdate(v.currentTime)
+      if (a && audioSrc) {
+        try {
+          a.currentTime = v.currentTime
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
     const applySeek = () => {
       if (cancelled) return false
-      // HAVE_METADATA or better — required before currentTime assignment sticks
       if (v.readyState < 1) return false
       suppressUpdates.current = true
       try {
@@ -87,11 +119,13 @@ export default function VideoPlayer({
         } else {
           v.currentTime = target
         }
+        if (a && audioSrc) {
+          a.currentTime = target
+        }
       } catch {
         suppressUpdates.current = false
         return false
       }
-      // If already at target (no seeked event), release suppress promptly
       if (Math.abs(v.currentTime - target) < 0.05) {
         finish()
       }
@@ -122,7 +156,41 @@ export default function VideoPlayer({
       cancelled = true
       v.removeEventListener('seeked', onSeeked)
     }
-  }, [currentTime, src, seekToken, onTimeUpdate])
+  }, [currentTime, src, seekToken, onTimeUpdate, audioSrc])
+
+  useEffect(() => {
+    const v = ref.current
+    const a = audioRef.current
+    if (!v || !a || !audioSrc) return
+
+    const syncPlay = () => {
+      void a.play().catch(() => undefined)
+    }
+    const syncPause = () => {
+      a.pause()
+    }
+    const syncTime = () => {
+      if (Math.abs(a.currentTime - v.currentTime) > 0.35) {
+        try {
+          a.currentTime = v.currentTime
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    v.addEventListener('play', syncPlay)
+    v.addEventListener('pause', syncPause)
+    v.addEventListener('timeupdate', syncTime)
+    if (!v.paused) syncPlay()
+
+    return () => {
+      v.removeEventListener('play', syncPlay)
+      v.removeEventListener('pause', syncPause)
+      v.removeEventListener('timeupdate', syncTime)
+      a.pause()
+    }
+  }, [audioSrc, src])
 
   return (
     <div className="video-player">
@@ -161,11 +229,13 @@ export default function VideoPlayer({
         ) : (
           <div className="video-empty muted">No video source</div>
         )}
+        {audioSrc && <audio ref={audioRef} src={audioSrc} preload="auto" />}
         <div className="playhead-badge mono">
           {fmt(currentTime)} / {fmt(duration || 0)}
         </div>
       </div>
       {label && <p className="video-label">{label}</p>}
+      {audioSrc && <p className="video-label">Preview mix audio active</p>}
       {error && <p className="video-error">{error}</p>}
       <p className="video-hint muted">Click any metric, cut, or finding to scrub the playhead here.</p>
     </div>

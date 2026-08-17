@@ -26,7 +26,10 @@ import type {
   AppSettings,
   DataStats,
   PastReportSummary,
-  AnalyzerEvent
+  AnalyzerEvent,
+  VoicesProject,
+  SpeakersManifest,
+  RenderJob
 } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 
@@ -49,6 +52,26 @@ const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
 let analysisChild: ChildProcessWithoutNullStreams | null = null
+let voicesChild: ChildProcessWithoutNullStreams | null = null
+
+function killVoices(): void {
+  if (!voicesChild) return
+  const child = voicesChild
+  ;(child as ChildProcessWithoutNullStreams & { __garudaKill?: boolean }).__garudaKill = true
+  voicesChild = null
+  try {
+    child.kill('SIGTERM')
+    setTimeout(() => {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        /* ignore */
+      }
+    }, 1500)
+  } catch {
+    /* ignore */
+  }
+}
 
 function reportsRoot(): string {
   const root = join(app.getPath('userData'), 'garuda', 'reports')
@@ -276,6 +299,79 @@ function killAnalysis(): void {
   } catch {
     /* ignore */
   }
+}
+
+function spawnVoices(args: string[], onDone?: (payload: Record<string, unknown>) => void): void {
+  if (voicesChild) {
+    send('voices:error', { message: 'A voices job is already running.' })
+    return
+  }
+  const { ffmpeg } = resolveFfmpeg()
+  const python = resolvePython()
+  const analysisDir = resolveAnalysisDir()
+  const fullArgs = ['-u', '-m', 'garuda_analyze.voices', ...args]
+  if (!fullArgs.includes('--ffmpeg')) {
+    fullArgs.push('--ffmpeg', ffmpeg)
+  }
+  const child = spawn(python, fullArgs, {
+    cwd: analysisDir,
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      PYTHONPATH: analysisDir
+    }
+  })
+  voicesChild = child
+  let buffer = ''
+  let terminalSent = false
+  child.stdout.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString('utf8')
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const evt = JSON.parse(trimmed) as { type: string; [k: string]: unknown }
+        if (evt.type === 'progress') send('voices:progress', evt)
+        else if (evt.type === 'error') {
+          terminalSent = true
+          voicesChild = null
+          send('voices:error', evt)
+        } else if (evt.type === 'done') {
+          terminalSent = true
+          voicesChild = null
+          send('voices:done', evt)
+          onDone?.(evt)
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  })
+  child.stderr.on('data', (chunk: Buffer) => {
+    console.error('[garuda-voices]', chunk.toString('utf8'))
+  })
+  child.on('error', (err) => {
+    voicesChild = null
+    if (!terminalSent) {
+      terminalSent = true
+      send('voices:error', { message: 'Failed to start voices engine.', detail: err.message })
+    }
+  })
+  child.on('close', (code) => {
+    const intentional = Boolean(
+      (child as ChildProcessWithoutNullStreams & { __garudaKill?: boolean }).__garudaKill
+    )
+    if (voicesChild === child) voicesChild = null
+    if (intentional || terminalSent) return
+    if (code !== 0) {
+      send('voices:error', {
+        message: 'Voices job failed.',
+        detail: `Engine exited with code ${code}`
+      })
+    }
+  })
 }
 
 function listPastReports(): PastReportSummary[] {
@@ -592,6 +688,132 @@ app.whenReady().then(() => {
     platform: process.platform
   }))
 
+  ipcMain.handle('voices:getManifest', (_e, reportPath: string) => {
+    const dir = dirname(reportPath)
+    const p = join(dir, 'voices', 'speakers.json')
+    if (!existsSync(p)) return null
+    return JSON.parse(readFileSync(p, 'utf8')) as SpeakersManifest
+  })
+
+  ipcMain.handle('voices:getProject', (_e, reportPath: string) => {
+    const dir = dirname(reportPath)
+    const p = join(dir, 'voices', 'project.json')
+    if (!existsSync(p)) return null
+    return JSON.parse(readFileSync(p, 'utf8')) as VoicesProject
+  })
+
+  ipcMain.handle('voices:saveProject', (_e, reportPath: string, project: VoicesProject) => {
+    const dir = dirname(reportPath)
+    const p = join(dir, 'voices', 'project.json')
+    mkdirSync(dirname(p), { recursive: true })
+    writeFileSync(p, JSON.stringify(project, null, 2), 'utf8')
+    return project
+  })
+
+  ipcMain.handle('voices:saveManifest', (_e, reportPath: string, manifest: SpeakersManifest) => {
+    const dir = dirname(reportPath)
+    const p = join(dir, 'voices', 'speakers.json')
+    mkdirSync(dirname(p), { recursive: true })
+    writeFileSync(p, JSON.stringify(manifest, null, 2), 'utf8')
+    return manifest
+  })
+
+  ipcMain.handle('voices:latestExport', (_e, reportPath: string) => {
+    const dir = join(dirname(reportPath), 'exports')
+    if (!existsSync(dir)) return null
+    const jobs = readdirSync(dir)
+      .map((name) => {
+        const outputPath = join(dir, name, 'output.mp4')
+        if (!existsSync(outputPath)) return null
+        try {
+          return { outputPath, mtime: statSync(outputPath).mtimeMs }
+        } catch {
+          return null
+        }
+      })
+      .filter((x): x is { outputPath: string; mtime: number } => Boolean(x))
+      .sort((a, b) => b.mtime - a.mtime)
+    return jobs[0]?.outputPath ?? null
+  })
+
+  ipcMain.handle('voices:analyze', (_e, reportPath: string) => {
+    const settings = readSettings()
+    const dir = dirname(reportPath)
+    const args = ['analyze', '--report-dir', dir]
+    if (settings.huggingfaceToken) {
+      args.push('--hf-token', settings.huggingfaceToken)
+    }
+    if (settings.downloadVoiceModels !== false) {
+      args.push('--allow-download')
+    }
+    spawnVoices(args)
+    return true
+  })
+
+  ipcMain.handle('voices:buildPreview', (_e, reportPath: string) => {
+    const dir = dirname(reportPath)
+    const projectFile = join(dir, 'voices', 'project.json')
+    spawnVoices(['preview', '--report-dir', dir, '--project', projectFile])
+    return true
+  })
+
+  ipcMain.handle('voices:soloEnhance', (_e, reportPath: string, speakerId: string) => {
+    const dir = dirname(reportPath)
+    const projectFile = join(dir, 'voices', 'project.json')
+    const out = join(dir, 'voices', 'stems', '.cache', `solo_${speakerId}.wav`)
+    spawnVoices([
+      'solo-enhance',
+      '--report-dir',
+      dir,
+      '--speaker-id',
+      speakerId,
+      '--project',
+      projectFile,
+      '--out',
+      out
+    ])
+    return out
+  })
+
+  ipcMain.handle('voices:render', (_e, reportPath: string) => {
+    const dir = dirname(reportPath)
+    const report = JSON.parse(readFileSync(reportPath, 'utf8')) as AnalysisReport
+    const jobId = `export-${Date.now()}`
+    const exportDir = join(dir, 'exports', jobId)
+    mkdirSync(exportDir, { recursive: true })
+    const projectFile = join(dir, 'voices', 'project.json')
+    const outputPath = join(exportDir, 'output.mp4')
+    const job: RenderJob = {
+      id: jobId,
+      reportId: basename(dir),
+      status: 'queued',
+      progress: 0,
+      outputPath,
+      ops: [
+        { type: 'audioRemix', projectPath: projectFile },
+        {
+          type: 'muxVideo',
+          videoPath: report.sourcePath,
+          audioPath: join(dir, 'voices', 'preview_mix.wav')
+        }
+      ]
+    }
+    const jobPath = join(exportDir, 'job.json')
+    writeFileSync(jobPath, JSON.stringify(job, null, 2), 'utf8')
+    spawnVoices(['render', '--job', jobPath])
+    return job
+  })
+
+  ipcMain.handle('voices:cancel', () => {
+    killVoices()
+    send('voices:cancelled', {})
+    return true
+  })
+
+  ipcMain.handle('voices:revealExport', (_e, outputPath: string) => {
+    if (outputPath && existsSync(outputPath)) shell.showItemInFolder(outputPath)
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -599,9 +821,11 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   killAnalysis()
+  killVoices()
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   killAnalysis()
+  killVoices()
 })

@@ -149,6 +149,38 @@ export default function SettingsScreen({ settings, onSave, onCleared }: Props) {
         </HudPanel>
       </div>
 
+      <HudPanel title="Voice models" eyebrow="Enhancement" delay={0.15}>
+        <label className="settings-field">
+          <span>HuggingFace token (optional)</span>
+          <input
+            type="password"
+            value={settings.huggingfaceToken ?? ''}
+            placeholder="hf_…"
+            autoComplete="off"
+            onChange={(e) => void patch({ huggingfaceToken: e.target.value })}
+          />
+        </label>
+        <p className="hint muted">
+          Needed only for gated pyannote diarization models. Leave blank to use local clustering.
+        </p>
+        <div className="toggle-grid">
+          <button
+            type="button"
+            className={`toggle-card ${settings.downloadVoiceModels !== false ? 'on' : ''}`}
+            onClick={() =>
+              void patch({ downloadVoiceModels: settings.downloadVoiceModels === false })
+            }
+          >
+            <span className="toggle-led" />
+            <span>Download voice models</span>
+          </button>
+        </div>
+        <p className="hint muted">
+          First-run downloads can be large (torch + separators + speech enhance). Models stay under
+          this app&apos;s data folder and are wiped by Clear all data.
+        </p>
+      </HudPanel>
+
       <HudPanel title="Library" eyebrow="Playback" delay={0.18}>
         <label className="settings-field inline">
           <span>Recent on Analyze</span>

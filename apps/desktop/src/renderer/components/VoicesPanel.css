@@ -1,0 +1,226 @@
+.voices {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 1.1rem;
+  margin-top: 0.5rem;
+}
+
+.voices-hidden-audio {
+  display: none;
+}
+
+.voices-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.voices-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.voices-mode {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid color-mix(in oklab, var(--cyan) 45%, transparent);
+  color: var(--cyan);
+}
+
+.voices-mode.masked {
+  border-color: color-mix(in oklab, var(--warn, #ffc14d) 50%, transparent);
+  color: var(--warn, #ffc14d);
+}
+
+.voices-warn {
+  font-size: 0.85rem;
+  color: color-mix(in oklab, var(--warn, #ffc14d) 85%, white);
+  margin: 0 0 0.85rem;
+  line-height: 1.4;
+}
+
+.voices-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.voices-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--cyan) 18%, transparent);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.voices-row:hover,
+.voices-row.selected {
+  border-color: color-mix(in oklab, var(--cyan) 55%, transparent);
+  background: color-mix(in oklab, var(--cyan) 8%, transparent);
+}
+
+.voices-chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.voices-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.voices-rename {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  width: 100%;
+}
+
+.voices-rename:focus {
+  outline: none;
+  color: var(--cyan);
+}
+
+.voices-solo-btn {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid color-mix(in oklab, var(--lime, #b8ff2e) 40%, transparent);
+  color: var(--lime, #b8ff2e);
+}
+
+.voices-selected {
+  margin: 0 0 0.85rem;
+  letter-spacing: 0.04em;
+}
+
+.voices-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.voices-slider {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.voices-slider span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.voices-slider em {
+  font-style: normal;
+  opacity: 0.7;
+}
+
+.voices-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.voices-ml {
+  margin-top: 0.9rem;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--cyan) 22%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+
+.voices-ml.on {
+  border-color: color-mix(in oklab, var(--lime, #b8ff2e) 55%, transparent);
+  background: color-mix(in oklab, var(--lime, #b8ff2e) 8%, transparent);
+}
+
+.voices-ml .toggle-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--cyan) 35%, transparent);
+}
+
+.voices-ml.on .toggle-led {
+  background: var(--lime, #b8ff2e);
+  box-shadow: 0 0 10px var(--lime, #b8ff2e);
+}
+
+.voices-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.voices-reveal {
+  margin-top: 0.75rem;
+}
+
+.voices-progress {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+}
+
+.voices-progress-bar {
+  height: 4px;
+  background: color-mix(in oklab, var(--cyan) 15%, transparent);
+  overflow: hidden;
+}
+
+.voices-progress-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--lime, #b8ff2e));
+  transition: width 0.25s ease;
+}
+
+.voices-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.45rem;
+  font-size: 0.8rem;
+}
+
+.voices-error {
+  grid-column: 1 / -1;
+  color: #ff6b8a;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 960px) {
+  .voices {
+    grid-template-columns: 1fr;
+  }
+}

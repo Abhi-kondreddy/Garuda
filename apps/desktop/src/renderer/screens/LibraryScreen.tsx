@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { PastReportSummary } from '../../shared/types'
 import './LibraryScreen.css'
 
@@ -31,12 +31,31 @@ export default function LibraryScreen({
 }: Props) {
   const [query, setQuery] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [exportsById, setExportsById] = useState<Record<string, string | null>>({})
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return reports
     return reports.filter((r) => r.sourceName.toLowerCase().includes(q))
   }, [reports, query])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const entries = await Promise.all(
+        reports.map(async (r) => {
+          const path = await window.garuda.voicesLatestExport(r.reportPath)
+          return [r.id, path] as const
+        })
+      )
+      if (!cancelled) {
+        setExportsById(Object.fromEntries(entries))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [reports])
 
   const handleDelete = async (item: PastReportSummary) => {
     if (confirmDelete) {
@@ -99,6 +118,15 @@ export default function LibraryScreen({
                 </span>
               </button>
               <div className="library-row-actions">
+                {exportsById[item.id] && (
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    onClick={() => void window.garuda.voicesRevealExport(exportsById[item.id]!)}
+                  >
+                    Reveal export
+                  </button>
+                )}
                 <button className="ghost-btn" type="button" onClick={() => onReveal(item)}>
                   Reveal
                 </button>

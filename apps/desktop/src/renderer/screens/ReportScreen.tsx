@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { AnalysisReport } from '../../shared/types'
 import ScoreRing from '../components/ScoreRing'
 import TimelineChart from '../components/TimelineChart'
 import CompanionPanel from '../components/CompanionPanel'
 import VideoPlayer from '../components/VideoPlayer'
+import VoicesPanel from '../components/VoicesPanel'
 import {
   buildLanguageBreakdown,
   languageLabel,
@@ -33,8 +34,15 @@ export default function ReportScreen({
 }: Props) {
   const [cursor, setCursor] = useState(0)
   const [seekToken, setSeekToken] = useState(0)
-  const [tab, setTab] = useState<'coach' | 'metrics'>('coach')
+  const [tab, setTab] = useState<'coach' | 'metrics' | 'voices'>('coach')
   const [seekLabel, setSeekLabel] = useState<string | null>(null)
+  const [previewMixPath, setPreviewMixPath] = useState<string | null>(null)
+  const [usePreviewAudio, setUsePreviewAudio] = useState(false)
+
+  const onPreviewMixReady = useCallback((mixPath: string | null) => {
+    setPreviewMixPath(mixPath)
+    if (!mixPath) setUsePreviewAudio(false)
+  }, [])
 
   const cursorTranscript = useMemo(() => {
     return report.transcript.find((t) => cursor >= t.start && cursor <= t.end)
@@ -101,6 +109,7 @@ export default function ReportScreen({
           label={seekLabel}
           seekToken={seekToken}
           autoplay={autoplay}
+          audioOverridePath={usePreviewAudio ? previewMixPath : null}
         />
 
         <section className="score-row score-row-compact">
@@ -141,6 +150,13 @@ export default function ReportScreen({
         >
           Metrics
         </button>
+        <button
+          type="button"
+          className={tab === 'voices' ? 'active' : ''}
+          onClick={() => setTab('voices')}
+        >
+          Voices
+        </button>
       </div>
 
       <section className="timeline-panel">
@@ -177,6 +193,24 @@ export default function ReportScreen({
       {tab === 'coach' && !companion && (
         <section className="panel panel-wide">
           <p className="muted">Re-analyze to unlock deep coach modules and playhead evidence.</p>
+        </section>
+      )}
+
+      {tab === 'voices' && reportPath && (
+        <VoicesPanel
+          reportPath={reportPath}
+          onPreviewMixReady={onPreviewMixReady}
+          onPlayMix={(mixPath) => {
+            setPreviewMixPath(mixPath)
+            setUsePreviewAudio(true)
+            seekTo(0, 'Preview mix')
+          }}
+        />
+      )}
+
+      {tab === 'voices' && !reportPath && (
+        <section className="panel panel-wide">
+          <p className="muted">Open a saved report to use Voices.</p>
         </section>
       )}
 
