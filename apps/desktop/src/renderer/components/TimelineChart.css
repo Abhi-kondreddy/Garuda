@@ -1,0 +1,54 @@
+.timeline-chart {
+  width: 100%;
+  height: 180px;
+  display: block;
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(0, 240, 255, 0.04), transparent 40%),
+    rgba(0, 0, 0, 0.55);
+  cursor: crosshair;
+  border: 1px solid var(--line);
+}
+
+.interest-line {
+  fill: none;
+  stroke: #00f0ff;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.65));
+}
+
+.wave-line {
+  fill: none;
+  stroke: rgba(184, 255, 46, 0.55);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.cursor-line {
+  stroke: #7dfff6;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.8));
+}
+
+.cursor-dot {
+  fill: #b8ff2e;
+  filter: drop-shadow(0 0 6px rgba(184, 255, 46, 0.9));
+}
+
+.risk-band {
+  opacity: 0.22;
+}
+
+.risk-band.high {
+  fill: #ff3d9a;
+}
+
+.risk-band.medium {
+  fill: #ffc14d;
+}
+
+.risk-band.low {
+  fill: #b8ff2e;
+}

@@ -1,0 +1,15 @@
+{
+  "name": "garuda",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Garuda — Local Desktop Video Analyzer for YouTube creators",
+  "scripts": {
+    "dev": "npm run dev --workspace=garuda-desktop",
+    "build": "npm run build --workspace=garuda-desktop",
+    "start": "npm run start --workspace=garuda-desktop",
+    "dist": "npm run dist --workspace=garuda-desktop"
+  },
+  "workspaces": [
+    "apps/desktop"
+  ]
+}

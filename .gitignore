@@ -1,0 +1,21 @@
+node_modules/
+dist/
+out/
+release/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.env
+.env.*
+apps/desktop/release/
+apps/desktop/out/
+packages/analysis/.venv/
+# Bundled ffmpeg binaries (downloaded by setup; ~90MB)
+tools/ffmpeg/ffmpeg
+tools/ffmpeg/ffprobe
+tools/ffmpeg/*.exe
+# Editor / local
+.cursor/
+*.local

@@ -1,0 +1,62 @@
+{
+  "name": "garuda-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Garuda — Local Desktop Video Analyzer",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.garuda.analyzer",
+    "productName": "Garuda",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../packages/analysis",
+        "to": "analysis",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.venv/**", "!**/tests/**"]
+      },
+      {
+        "from": "../../tools/ffmpeg",
+        "to": "ffmpeg"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": ["dmg", "zip"]
+    },
+    "linux": {
+      "target": ["AppImage"]
+    },
+    "win": {
+      "target": ["nsis"]
+    }
+  },
+  "dependencies": {
+    "framer-motion": "^13.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^3.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}

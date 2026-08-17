@@ -1,0 +1,146 @@
+.hud-panel {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 18px 20px 20px;
+  background:
+    linear-gradient(135deg, rgba(0, 240, 255, 0.07), transparent 42%),
+    linear-gradient(180deg, rgba(8, 14, 28, 0.92), rgba(1, 1, 4, 0.88));
+  box-shadow:
+    inset 0 0 40px rgba(0, 240, 255, 0.04),
+    0 0 30px rgba(0, 240, 255, 0.06);
+  overflow: hidden;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.hud-panel:hover {
+  border-color: var(--line-strong);
+  box-shadow:
+    inset 0 0 50px rgba(0, 240, 255, 0.06),
+    0 0 36px rgba(0, 240, 255, 0.14);
+}
+
+.hud-panel.tone-danger {
+  border-color: rgba(255, 61, 154, 0.35);
+  background:
+    linear-gradient(135deg, rgba(255, 61, 154, 0.1), transparent 45%),
+    linear-gradient(180deg, rgba(28, 8, 18, 0.92), rgba(1, 1, 4, 0.9));
+}
+
+.hud-panel.tone-danger:hover {
+  box-shadow:
+    inset 0 0 40px rgba(255, 61, 154, 0.08),
+    0 0 32px rgba(255, 61, 154, 0.18);
+}
+
+.hud-panel.tone-lime {
+  border-color: rgba(184, 255, 46, 0.3);
+}
+
+.hud-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--neon);
+  border-style: solid;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 4px var(--glow));
+  z-index: 2;
+}
+
+.tone-danger .hud-corner {
+  border-color: var(--magenta);
+  filter: drop-shadow(0 0 4px rgba(255, 61, 154, 0.6));
+}
+
+.hud-corner.tl {
+  top: 0;
+  left: 0;
+  border-width: 2px 0 0 2px;
+}
+
+.hud-corner.tr {
+  top: 0;
+  right: 0;
+  border-width: 2px 2px 0 0;
+}
+
+.hud-corner.bl {
+  bottom: 0;
+  left: 0;
+  border-width: 0 0 2px 2px;
+}
+
+.hud-corner.br {
+  bottom: 0;
+  right: 0;
+  border-width: 0 2px 2px 0;
+}
+
+.hud-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 40%;
+  top: -40%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(0, 240, 255, 0.06),
+    transparent
+  );
+  animation: hudScan 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.tone-danger .hud-scan {
+  background: linear-gradient(180deg, transparent, rgba(255, 61, 154, 0.07), transparent);
+}
+
+@keyframes hudScan {
+  0% {
+    top: -40%;
+  }
+  100% {
+    top: 110%;
+  }
+}
+
+.hud-panel-head {
+  position: relative;
+  margin-bottom: 14px;
+  z-index: 1;
+}
+
+.hud-panel-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--neon-hot);
+  text-shadow: 0 0 12px var(--glow);
+}
+
+.tone-danger .hud-panel-head h2 {
+  color: #ff9fd0;
+  text-shadow: 0 0 12px rgba(255, 61, 154, 0.45);
+}
+
+.hud-head-line {
+  display: block;
+  margin-top: 10px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--neon), transparent 80%);
+  opacity: 0.55;
+  box-shadow: 0 0 8px var(--glow);
+}
+
+.tone-danger .hud-head-line {
+  background: linear-gradient(90deg, var(--magenta), transparent 80%);
+}
+
+.hud-panel-body {
+  position: relative;
+  z-index: 1;
+}
