@@ -1,0 +1,354 @@
+.editor {
+  height: 100%;
+  overflow: auto;
+  padding: 8px 4px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.editor-head h1 {
+  margin: 4px 0 6px;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 1.65rem;
+}
+
+.editor-head .eyebrow {
+  margin: 0;
+  color: var(--neon);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+}
+
+.editor-head-actions,
+.editor-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.editor-back {
+  margin-bottom: 4px;
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.editor-deliverables {
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  background: rgba(0, 12, 20, 0.55);
+  border-radius: 4px;
+}
+
+.editor-deliverables-head {
+  margin-bottom: 12px;
+}
+
+.editor-deliverables-head h2 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 1.15rem;
+}
+
+.editor-deliverables-head .eyebrow {
+  margin: 0;
+  color: var(--lime);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+}
+
+.editor-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.editor-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.editor-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.editor-clip-list,
+.editor-bin-list,
+.editor-project-list,
+.editor-timeline,
+.editor-reasons {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-clip-list li,
+.editor-bin-list li,
+.editor-project-list li,
+.editor-timeline li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 12, 20, 0.45);
+  border-radius: 4px;
+}
+
+.editor-clip-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.editor-clip-meta strong,
+.editor-project-btn strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-clip-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.editor-project-btn {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+}
+
+.editor-bin-head {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  align-items: center;
+}
+
+.editor-bin-list li {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.editor-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.editor-outputs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.editor-output-card {
+  min-width: 140px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.editor-output-card.active {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.15);
+}
+
+.editor-output-card.short.active {
+  border-color: rgba(184, 255, 46, 0.55);
+}
+
+.editor-output-card .score {
+  color: var(--lime);
+}
+
+.editor-export-opts {
+  margin: 8px 0 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+  max-width: 720px;
+}
+
+.editor-export-opts h4 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 0.95rem;
+}
+
+.export-check {
+  align-self: end;
+  padding-bottom: 10px;
+}
+
+.editor-output-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.editor-export-opts {
+  margin: 8px 0 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+  max-width: 720px;
+}
+
+.editor-export-opts h4 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 0.95rem;
+}
+
+.export-check {
+  align-self: end;
+  padding-bottom: 10px;
+}
+
+.editor-why {
+  margin: 0 0 16px;
+  padding: 14px 14px 10px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(0, 240, 255, 0.06), transparent 55%),
+    rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  max-width: 720px;
+}
+
+.editor-why-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.editor-why-head .eyebrow {
+  margin: 0;
+  color: var(--lime);
+}
+
+.editor-why-score {
+  color: var(--lime);
+  font-size: 0.9rem;
+}
+
+.editor-why-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-why-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 12, 20, 0.4);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+}
+
+.editor-why-tag {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  color: var(--neon);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  padding: 3px 6px;
+  border-radius: 2px;
+}
+
+.editor-why-tag.success {
+  color: var(--lime);
+  border-color: rgba(184, 255, 46, 0.4);
+}
+
+.editor-error {
+  color: var(--magenta);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 61, 154, 0.35);
+  background: rgba(255, 61, 154, 0.08);
+}
+
+.tip {
+  font-size: 0.85rem;
+  margin: 0 0 10px;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}

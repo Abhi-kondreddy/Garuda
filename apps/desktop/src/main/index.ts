@@ -8,7 +8,7 @@ import {
   Menu
 } from 'electron'
 import { join, dirname, basename } from 'path'
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process'
+import { spawn, spawnSync, ChildProcessWithoutNullStreams } from 'child_process'
 import {
   createReadStream,
   existsSync,
@@ -29,9 +29,13 @@ import type {
   AnalyzerEvent,
   VoicesProject,
   SpeakersManifest,
-  RenderJob
+  RenderJob,
+  EditProject,
+  EditProjectSummary,
+  EditClip,
+  EditExportOptions
 } from '../shared/types'
-import { DEFAULT_SETTINGS } from '../shared/types'
+import { DEFAULT_SETTINGS, createEmptyEditProject, normalizeEditProject } from '../shared/types'
 
 // Must be before app ready — allows <video> to stream local files.
 protocol.registerSchemesAsPrivileged([
@@ -53,6 +57,7 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let analysisChild: ChildProcessWithoutNullStreams | null = null
 let voicesChild: ChildProcessWithoutNullStreams | null = null
+let editorChild: ChildProcessWithoutNullStreams | null = null
 
 function killVoices(): void {
   if (!voicesChild) return
@@ -71,6 +76,181 @@ function killVoices(): void {
   } catch {
     /* ignore */
   }
+}
+
+function killEditor(): void {
+  if (!editorChild) return
+  const child = editorChild
+  ;(child as ChildProcessWithoutNullStreams & { __garudaKill?: boolean }).__garudaKill = true
+  editorChild = null
+  try {
+    child.kill('SIGTERM')
+    setTimeout(() => {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        /* ignore */
+      }
+    }, 1500)
+  } catch {
+    /* ignore */
+  }
+}
+
+function projectsRoot(): string {
+  const root = join(app.getPath('userData'), 'garuda', 'projects')
+  mkdirSync(root, { recursive: true })
+  return root
+}
+
+function listEditProjects(): EditProjectSummary[] {
+  const root = projectsRoot()
+  const items: EditProjectSummary[] = []
+  for (const name of readdirSync(root)) {
+    const projectPath = join(root, name, 'project.json')
+    if (!existsSync(projectPath)) continue
+    try {
+      const p = JSON.parse(readFileSync(projectPath, 'utf8')) as EditProject
+      items.push({
+        id: p.id,
+        name: p.name,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        projectPath,
+        clipCount: p.clips?.length ?? 0,
+        longCount: p.briefing?.format?.longCount ?? 0,
+        shortsCount: p.briefing?.format?.shortsCount ?? 0,
+        status: p.status
+      })
+    } catch {
+      /* skip corrupt */
+    }
+  }
+  return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+function probeDuration(ffprobe: string, videoPath: string): number | null {
+  try {
+    const proc = spawnSync(
+      ffprobe,
+      ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', videoPath],
+      { encoding: 'utf8' }
+    )
+    if (proc.status !== 0 || !proc.stdout) return null
+    const data = JSON.parse(proc.stdout) as {
+      format?: { duration?: string }
+      streams?: Array<{ codec_type?: string; duration?: string }>
+    }
+    const fromFormat = Number(data.format?.duration)
+    if (Number.isFinite(fromFormat) && fromFormat > 0) return fromFormat
+    const vs = data.streams?.find((s) => s.codec_type === 'video')
+    const fromStream = Number(vs?.duration)
+    if (Number.isFinite(fromStream) && fromStream > 0) return fromStream
+    return null
+  } catch {
+    return null
+  }
+}
+
+function runEditorSync(args: string[]): { stdout: string; stderr: string; status: number | null } {
+  const analysisDir = resolveAnalysisDir()
+  const python = resolvePython()
+  const proc = spawnSync(python, ['-u', '-m', 'garuda_analyze.editor', ...args], {
+    cwd: analysisDir,
+    encoding: 'utf8',
+    env: editorPythonEnv(),
+    maxBuffer: 20 * 1024 * 1024
+  })
+  return {
+    stdout: proc.stdout || '',
+    stderr: proc.stderr || '',
+    status: proc.status
+  }
+}
+
+function parseEditorDone(stdout: string): Record<string, unknown> | null {
+  const lines = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let evt: Record<string, unknown>
+    try {
+      evt = JSON.parse(lines[i]) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    if (evt.type === 'error') {
+      throw new Error(String(evt.detail || evt.message || 'Editor job failed'))
+    }
+    if (evt.type === 'done') return evt
+  }
+  return null
+}
+
+function spawnEditor(args: string[]): void {
+  if (editorChild) {
+    send('editor:error', { message: 'An editor job is already running.' })
+    return
+  }
+  const { ffmpeg } = resolveFfmpeg()
+  const fullArgs = ['-u', '-m', 'garuda_analyze.editor', ...args]
+  if (!fullArgs.includes('--ffmpeg') && args[0] === 'export') {
+    fullArgs.push('--ffmpeg', ffmpeg)
+  }
+  const child = spawn(resolvePython(), fullArgs, {
+    cwd: resolveAnalysisDir(),
+    env: editorPythonEnv()
+  })
+  editorChild = child
+  let buf = ''
+  let sawTerminal = false
+  const flushLines = (chunk: string) => {
+    buf += chunk
+    const lines = buf.split('\n')
+    buf = lines.pop() || ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        const evt = JSON.parse(line) as Record<string, unknown>
+        if (evt.type === 'progress') send('editor:progress', evt)
+        else if (evt.type === 'error') {
+          sawTerminal = true
+          send('editor:error', evt)
+        } else if (evt.type === 'done') {
+          sawTerminal = true
+          send('editor:done', evt)
+        }
+      } catch {
+        /* ignore non-JSON */
+      }
+    }
+  }
+  child.stdout.on('data', (chunk: Buffer) => flushLines(chunk.toString('utf8')))
+  let errBuf = ''
+  child.stderr.on('data', (chunk: Buffer) => {
+    const text = chunk.toString('utf8')
+    errBuf += text
+    console.error('[garuda-editor]', text)
+  })
+  child.on('error', (err) => {
+    editorChild = null
+    send('editor:error', { message: 'Failed to start editor engine.', detail: err.message })
+  })
+  child.on('close', (code) => {
+    if (buf.trim()) flushLines('\n')
+    if (editorChild === child) editorChild = null
+    const killed = (child as ChildProcessWithoutNullStreams & { __garudaKill?: boolean }).__garudaKill
+    if (!killed && !sawTerminal && code !== 0) {
+      const detail =
+        errBuf.slice(-1500) ||
+        `python=${resolvePython()} cwd=${resolveAnalysisDir()} (no stderr — often OOM on 4K; try Quick propose or shorter clips)`
+      send('editor:error', {
+        message: `Editor engine exited with code ${code ?? 'unknown'}.`,
+        detail
+      })
+    }
+  })
 }
 
 function reportsRoot(): string {
@@ -135,9 +315,12 @@ function dataStats(): DataStats {
 
 function clearAllData(): DataStats {
   killAnalysis()
+  killVoices()
+  killEditor()
   const root = garudaRoot()
   rmSync(root, { recursive: true, force: true })
   mkdirSync(reportsRoot(), { recursive: true })
+  mkdirSync(projectsRoot(), { recursive: true })
   writeSettings({ ...DEFAULT_SETTINGS })
   return dataStats()
 }
@@ -147,7 +330,9 @@ function resolveRepoRoot(): string {
   if (isDev) {
     const candidates = [
       join(__dirname, '..', '..', '..', '..'), // out/main -> Garuda
+      join(__dirname, '..', '..', '..'), // out/main alternate
       join(app.getAppPath(), '..', '..'), // apps/desktop -> Garuda
+      join(app.getAppPath(), '..', '..', '..'),
       join(process.cwd(), '..', '..'),
       process.cwd()
     ]
@@ -174,6 +359,17 @@ function resolveAnalysisDir(): string {
     return join(resolveRepoRoot(), 'packages', 'analysis')
   }
   return join(process.resourcesPath, 'analysis')
+}
+
+function editorPythonEnv(): NodeJS.ProcessEnv {
+  const analysisDir = resolveAnalysisDir()
+  const prev = process.env.PYTHONPATH || ''
+  const parts = [analysisDir, prev].filter(Boolean)
+  return {
+    ...process.env,
+    PYTHONUNBUFFERED: '1',
+    PYTHONPATH: parts.join(process.platform === 'win32' ? ';' : ':')
+  }
 }
 
 function resolveFfmpeg(): { ffmpeg: string; ffprobe: string } {
@@ -550,8 +746,13 @@ function buildAppMenu(): void {
           click: () => send('app:navigate', 'library')
         },
         {
+          label: 'Editor',
+          accelerator: 'CmdOrCtrl+4',
+          click: () => send('app:navigate', 'editor')
+        },
+        {
           label: 'Report',
-          accelerator: 'CmdOrCtrl+3',
+          accelerator: 'CmdOrCtrl+5',
           click: () => send('app:navigate', 'report')
         },
         {
@@ -814,6 +1015,141 @@ app.whenReady().then(() => {
     if (outputPath && existsSync(outputPath)) shell.showItemInFolder(outputPath)
   })
 
+  ipcMain.handle('editor:list', () => listEditProjects())
+
+  ipcMain.handle('editor:create', (_e, name?: string) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const dir = join(projectsRoot(), id)
+    mkdirSync(dir, { recursive: true })
+    mkdirSync(join(dir, 'exports'), { recursive: true })
+    const projectPath = join(dir, 'project.json')
+    const project = createEmptyEditProject(id, name?.trim() || `Day edit ${new Date().toLocaleDateString()}`, projectPath)
+    writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf8')
+    return project
+  })
+
+  ipcMain.handle('editor:load', (_e, projectPath: string) => {
+    if (!existsSync(projectPath)) throw new Error('Project not found')
+    return normalizeEditProject(JSON.parse(readFileSync(projectPath, 'utf8')) as EditProject)
+  })
+
+  ipcMain.handle('editor:save', (_e, project: EditProject) => {
+    const next = normalizeEditProject({ ...project, updatedAt: new Date().toISOString() })
+    writeFileSync(project.projectPath, JSON.stringify(next, null, 2), 'utf8')
+    return next
+  })
+
+  ipcMain.handle('editor:delete', (_e, projectPath: string) => {
+    const dir = dirname(projectPath)
+    if (dir.startsWith(projectsRoot())) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    return listEditProjects()
+  })
+
+  ipcMain.handle('editor:openVideos', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Add clips to edit project',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: 'Videos',
+          extensions: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v']
+        }
+      ]
+    })
+    if (result.canceled || !result.filePaths.length) return [] as EditClip[]
+    const { ffprobe } = resolveFfmpeg()
+    return result.filePaths.map((filePath) => {
+      let mtimeMs: number | undefined
+      try {
+        mtimeMs = statSync(filePath).mtimeMs
+      } catch {
+        mtimeMs = undefined
+      }
+      const clip: EditClip = {
+        id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        path: filePath,
+        name: basename(filePath),
+        durationSec: probeDuration(ffprobe, filePath),
+        mtimeMs
+      }
+      return clip
+    })
+  })
+
+  ipcMain.handle('editor:propose', (_e, projectPath: string, opts?: { quick?: boolean }) => {
+    if (!projectPath || !existsSync(projectPath)) {
+      throw new Error('Project file not found. Save the project and try again.')
+    }
+    const { ffmpeg, ffprobe } = resolveFfmpeg()
+    const settings = readSettings()
+    const args = [
+      'propose',
+      '--project',
+      projectPath,
+      '--ffmpeg',
+      ffmpeg,
+      '--ffprobe',
+      ffprobe,
+      '--whisper-model',
+      settings.whisperModel || 'tiny',
+      // Visual+audio read by default; ASR is heavy and often crashes first-run without models.
+      '--skip-asr'
+    ]
+    if (opts?.quick) args.push('--quick')
+    send('editor:progress', {
+      type: 'progress',
+      stage: 'propose',
+      percent: 1,
+      message: opts?.quick
+        ? 'Quick propose…'
+        : `Starting deep read (python=${resolvePython()})…`
+    })
+    spawnEditor(args)
+    return true
+  })
+
+  ipcMain.handle(
+    'editor:export',
+    (_e, projectPath: string, outputId: string, options?: Partial<EditExportOptions>) => {
+      const dir = dirname(projectPath)
+      const out = join(dir, 'exports', `${outputId}.mp4`)
+      const quality = options?.quality || 'good'
+      const resolution = options?.resolution || '1080'
+      const burnTitle = options?.burnTitle !== false
+      const fps = options?.fps || 30
+      spawnEditor([
+        'export',
+        '--project',
+        projectPath,
+        '--output-id',
+        outputId,
+        '--out',
+        out,
+        '--quality',
+        quality,
+        '--resolution',
+        String(resolution),
+        '--burn-title',
+        burnTitle ? '1' : '0',
+        '--fps',
+        String(fps)
+      ])
+      return out
+    }
+  )
+
+  ipcMain.handle('editor:cancel', () => {
+    killEditor()
+    send('editor:cancelled', {})
+    return true
+  })
+
+  ipcMain.handle('editor:revealExport', (_e, outputPath: string) => {
+    if (outputPath && existsSync(outputPath)) shell.showItemInFolder(outputPath)
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -822,10 +1158,12 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   killAnalysis()
   killVoices()
+  killEditor()
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   killAnalysis()
   killVoices()
+  killEditor()
 })

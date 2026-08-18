@@ -1,0 +1,223 @@
+.editor-progress-panel {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  flex-shrink: 0;
+  margin: 0 0 8px;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(0, 240, 255, 0.45);
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(0, 30, 40, 0.98), rgba(5, 8, 16, 0.98)),
+    radial-gradient(ellipse 70% 80% at 100% 0%, rgba(184, 255, 46, 0.12), transparent 55%);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 240, 255, 0.12);
+}
+
+.epp-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.epp-head .eyebrow {
+  margin: 0;
+  color: var(--lime);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+}
+
+.epp-head h2 {
+  margin: 4px 0 6px;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  font-size: 1.25rem;
+  color: var(--ink);
+}
+
+.epp-sub {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.epp-completion {
+  margin-bottom: 14px;
+}
+
+.epp-completion-meta,
+.epp-phase-meta,
+.epp-stage-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.epp-label {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--neon);
+  font-family: var(--font-display);
+}
+
+.epp-pct {
+  font-size: 1.85rem;
+  font-family: var(--font-display);
+  color: var(--neon-hot);
+  text-shadow: 0 0 18px var(--glow);
+  line-height: 1;
+}
+
+.epp-track {
+  position: relative;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(0, 240, 255, 0.28);
+  overflow: hidden;
+}
+
+.epp-track-lg {
+  height: 16px;
+}
+
+.epp-track-sm {
+  height: 7px;
+}
+
+.epp-track-phase {
+  height: 11px;
+}
+
+.epp-fill {
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #004850, #00e0f0, #7dfff6);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.45);
+  transition: width 0.25s ease;
+}
+
+.epp-fill-main {
+  background: linear-gradient(90deg, #003840, #00c8d8, #b8ff2e);
+}
+
+.epp-fill-phase {
+  background: linear-gradient(90deg, #00a8b8, #b8ff2e);
+}
+
+.epp-stages {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 900px) {
+  .epp-stages {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.epp-stage {
+  padding: 10px;
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  opacity: 0.55;
+}
+
+.epp-stage.active {
+  opacity: 1;
+  border-color: rgba(0, 240, 255, 0.55);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.15);
+}
+
+.epp-stage.done {
+  opacity: 0.92;
+  border-color: rgba(184, 255, 46, 0.4);
+}
+
+.epp-stage-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  flex-shrink: 0;
+}
+
+.epp-stage.active .epp-stage-dot {
+  background: var(--neon);
+  box-shadow: 0 0 10px var(--glow);
+}
+
+.epp-stage.done .epp-stage-dot {
+  background: var(--lime);
+  box-shadow: 0 0 10px var(--glow-lime);
+}
+
+.epp-stage-top {
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.epp-stage-name {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+.epp-stage.active .epp-stage-name {
+  color: var(--ink);
+}
+
+.epp-stage-pct {
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
+
+.epp-phase {
+  padding: 12px;
+  border: 1px solid rgba(0, 240, 255, 0.22);
+  background: rgba(0, 12, 20, 0.55);
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.epp-msg {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+  word-break: break-word;
+}
+
+.epp-clips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.epp-clip-pill {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  background: rgba(0, 0, 0, 0.4);
+  font-size: 0.75rem;
+}
+
+.epp-clip-pill.done {
+  border-color: rgba(184, 255, 46, 0.5);
+  color: var(--lime);
+}
+
+.epp-clip-pill.active {
+  border-color: var(--neon);
+  color: var(--neon-hot);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+}

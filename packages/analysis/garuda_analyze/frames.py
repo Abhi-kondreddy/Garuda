@@ -25,6 +25,7 @@ def analyze_frames(
     duration: float,
     fps: float,
     on_progress: Callable[[float, str], None],
+    sample_every: int | None = None,
 ) -> dict:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -33,6 +34,8 @@ def analyze_frames(
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     if total <= 0 and duration > 0 and fps > 0:
         total = int(duration * fps)
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
 
     brightness: list[float] = []
     contrast: list[float] = []
@@ -46,7 +49,9 @@ def analyze_frames(
     prev_gray = None
     prev_hist = None
     frame_idx = 0
-    sample_every = 1  # every frame for light metrics
+    # Default: every frame (Report analyzer). Editor may pass a stride for 4K/long clips.
+    if sample_every is None or sample_every < 1:
+        sample_every = 1
 
     face_cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -56,7 +61,12 @@ def analyze_frames(
     # Dense face sampling ~3 fps equivalent
     face_stride = max(1, int(round(fps / 3.0))) if fps > 0 else 10
 
-    on_progress(1, "Visual analysis · decoding frames…")
+    on_progress(
+        1,
+        f"Visual analysis · decoding frames… (sample every {sample_every}"
+        + (f", {width}px" if width else "")
+        + ")",
+    )
 
     while True:
         ok, frame = cap.read()

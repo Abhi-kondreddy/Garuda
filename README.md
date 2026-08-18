@@ -1,6 +1,8 @@
 # Garuda
 
-Local-first desktop video analyzer for YouTube creators. Drop in a video, watch live analysis progress, and get a rich report covering hook strength, interestingness, color evenness, visual quality, and Telugu/English audio.
+Local-first desktop video analyzer for YouTube creators. Drop in a video, watch live analysis progress, and get a rich report covering hook strength, interestingness, color evenness, visual quality, and Telugu/English audio. The **Editor** builds a day project (clips → long + Shorts proposals → preview → export).
+
+See **[FEATURES.md](FEATURES.md)** for what’s shipped vs deferred.
 
 ## Stack
 

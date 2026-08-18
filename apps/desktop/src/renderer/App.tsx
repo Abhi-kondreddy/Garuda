@@ -7,6 +7,7 @@ import AnalyzingScreen from './screens/AnalyzingScreen'
 import ReportScreen from './screens/ReportScreen'
 import LibraryScreen from './screens/LibraryScreen'
 import SettingsScreen from './screens/SettingsScreen'
+import EditorScreen from './screens/EditorScreen'
 import type {
   AnalysisReport,
   AnalysisStage,
@@ -275,6 +276,19 @@ export default function App() {
                   error={error}
                   onCancel={() => void window.garuda.cancelAnalysis()}
                 />
+              </motion.div>
+            )}
+
+            {route === 'editor' && (
+              <motion.div
+                key="editor"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.35 }}
+                style={{ height: '100%' }}
+              >
+                <EditorScreen />
               </motion.div>
             )}
 

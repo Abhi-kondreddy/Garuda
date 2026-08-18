@@ -23,21 +23,27 @@ const ITEMS: Array<{
     icon: 'M4 12h16M12 4v16M7 7l10 10M17 7L7 17'
   },
   {
+    id: 'editor',
+    label: 'Editor',
+    hint: '02',
+    icon: 'M4 6h16v4H4V6zm0 8h10v4H4v-4zm12 0h4v4h-4v-4z'
+  },
+  {
     id: 'library',
     label: 'Library',
-    hint: '02',
+    hint: '03',
     icon: 'M4 6h16M4 12h16M4 18h10'
   },
   {
     id: 'report',
     label: 'Report',
-    hint: '03',
+    hint: '04',
     icon: 'M5 19V5h10l4 4v10H5zm10-14v4h4'
   },
   {
     id: 'settings',
     label: 'Settings',
-    hint: '04',
+    hint: '05',
     icon: 'M12 8a4 4 0 100 8 4 4 0 000-8zm0-5v2m0 14v2m9-9h-2M5 12H3m12.5-6.5l-1.4 1.4M7.9 16.1l-1.4 1.4m10 0l-1.4-1.4M7.9 7.9L6.5 6.5'
   }
 ]

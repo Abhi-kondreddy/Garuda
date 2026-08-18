@@ -82,6 +82,7 @@ def run_pipeline(
     whisper_model: str,
     skip_asr: bool,
     emit: Emit,
+    sample_every: int | None = None,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -166,6 +167,7 @@ def run_pipeline(
         duration=meta["duration"],
         fps=meta["fps"],
         on_progress=visual_progress,
+        sample_every=sample_every,
     )
 
     transcript = []

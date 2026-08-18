@@ -11,7 +11,11 @@ import type {
   SpeakersManifest,
   VoicesProject,
   RenderJob,
-  VoicesProgressEvent
+  VoicesProgressEvent,
+  EditProject,
+  EditProjectSummary,
+  EditClip,
+  EditExportOptions
 } from '../shared/types'
 
 export interface GarudaApi {
@@ -40,6 +44,20 @@ export interface GarudaApi {
   voicesCancel: () => Promise<boolean>
   voicesRevealExport: (outputPath: string) => Promise<void>
   voicesLatestExport: (reportPath: string) => Promise<string | null>
+  editorList: () => Promise<EditProjectSummary[]>
+  editorCreate: (name?: string) => Promise<EditProject>
+  editorLoad: (projectPath: string) => Promise<EditProject>
+  editorSave: (project: EditProject) => Promise<EditProject>
+  editorDelete: (projectPath: string) => Promise<EditProjectSummary[]>
+  editorOpenVideos: () => Promise<EditClip[]>
+  editorPropose: (projectPath: string, opts?: { quick?: boolean }) => Promise<boolean>
+  editorExport: (
+    projectPath: string,
+    outputId: string,
+    options?: Partial<EditExportOptions>
+  ) => Promise<string>
+  editorCancel: () => Promise<boolean>
+  editorRevealExport: (outputPath: string) => Promise<void>
   onProgress: (cb: (evt: ProgressEvent) => void) => () => void
   onError: (cb: (evt: ErrorEvent) => void) => () => void
   onDone: (cb: (evt: { reportPath: string }) => void) => () => void
@@ -48,6 +66,10 @@ export interface GarudaApi {
   onVoicesDone: (cb: (evt: Record<string, unknown>) => void) => () => void
   onVoicesError: (cb: (evt: ErrorEvent) => void) => () => void
   onVoicesCancelled: (cb: () => void) => () => void
+  onEditorProgress: (cb: (evt: VoicesProgressEvent) => void) => () => void
+  onEditorDone: (cb: (evt: Record<string, unknown>) => void) => () => void
+  onEditorError: (cb: (evt: ErrorEvent) => void) => () => void
+  onEditorCancelled: (cb: () => void) => () => void
   onNavigate: (cb: (route: AppRoute) => void) => () => void
   onMenuAction: (cb: (action: string) => void) => () => void
 }
@@ -81,6 +103,17 @@ const api: GarudaApi = {
   voicesCancel: () => ipcRenderer.invoke('voices:cancel'),
   voicesRevealExport: (outputPath) => ipcRenderer.invoke('voices:revealExport', outputPath),
   voicesLatestExport: (reportPath) => ipcRenderer.invoke('voices:latestExport', reportPath),
+  editorList: () => ipcRenderer.invoke('editor:list'),
+  editorCreate: (name) => ipcRenderer.invoke('editor:create', name),
+  editorLoad: (projectPath) => ipcRenderer.invoke('editor:load', projectPath),
+  editorSave: (project) => ipcRenderer.invoke('editor:save', project),
+  editorDelete: (projectPath) => ipcRenderer.invoke('editor:delete', projectPath),
+  editorOpenVideos: () => ipcRenderer.invoke('editor:openVideos'),
+  editorPropose: (projectPath, opts) => ipcRenderer.invoke('editor:propose', projectPath, opts),
+  editorExport: (projectPath, outputId, options) =>
+    ipcRenderer.invoke('editor:export', projectPath, outputId, options),
+  editorCancel: () => ipcRenderer.invoke('editor:cancel'),
+  editorRevealExport: (outputPath) => ipcRenderer.invoke('editor:revealExport', outputPath),
   onProgress: (cb) => {
     const listener = (_: unknown, evt: ProgressEvent) => cb(evt)
     ipcRenderer.on('analysis:progress', listener)
@@ -120,6 +153,26 @@ const api: GarudaApi = {
     const listener = () => cb()
     ipcRenderer.on('voices:cancelled', listener)
     return () => ipcRenderer.removeListener('voices:cancelled', listener)
+  },
+  onEditorProgress: (cb) => {
+    const listener = (_: unknown, evt: VoicesProgressEvent) => cb(evt)
+    ipcRenderer.on('editor:progress', listener)
+    return () => ipcRenderer.removeListener('editor:progress', listener)
+  },
+  onEditorDone: (cb) => {
+    const listener = (_: unknown, evt: Record<string, unknown>) => cb(evt)
+    ipcRenderer.on('editor:done', listener)
+    return () => ipcRenderer.removeListener('editor:done', listener)
+  },
+  onEditorError: (cb) => {
+    const listener = (_: unknown, evt: ErrorEvent) => cb(evt)
+    ipcRenderer.on('editor:error', listener)
+    return () => ipcRenderer.removeListener('editor:error', listener)
+  },
+  onEditorCancelled: (cb) => {
+    const listener = () => cb()
+    ipcRenderer.on('editor:cancelled', listener)
+    return () => ipcRenderer.removeListener('editor:cancelled', listener)
   },
   onNavigate: (cb) => {
     const listener = (_: unknown, route: AppRoute) => cb(route)

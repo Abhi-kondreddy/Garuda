@@ -410,7 +410,242 @@ export interface PastReportSummary {
   reportPath: string
 }
 
-export type AppRoute = 'analyze' | 'library' | 'report' | 'settings'
+export type AppRoute = 'analyze' | 'library' | 'report' | 'settings' | 'editor'
+
+/** ---- Edit projects (YouTube assembly) ---- */
+
+export type EditLook = 'neutral' | 'warm' | 'contrast'
+export type EditMusicMood = 'none' | 'chill' | 'upbeat' | 'cinematic' | 'custom'
+
+export interface EditClip {
+  id: string
+  path: string
+  name: string
+  durationSec: number | null
+  mtimeMs?: number
+}
+
+export interface EditTextCue {
+  id: string
+  when: 'hook' | 'chapter' | 'end' | 'custom'
+  text: string
+  style: 'title' | 'lower_third' | 'big_center'
+  timeSec?: number
+}
+
+export interface EditBriefing {
+  title: string
+  subtitle: string
+  cta: string
+  look: EditLook
+  musicMood: EditMusicMood
+  customMusicPath?: string
+  texts: EditTextCue[]
+  format: { longCount: number; shortsCount: number }
+  longTargetMin: number
+  shortMaxSec: number
+}
+
+export interface EditSectionHint {
+  id: string
+  name: string
+  clipIds: string[]
+}
+
+export interface EditShortBin {
+  id: string
+  topic: string
+  clipIds: string[]
+  shortsOnly: boolean
+}
+
+export interface EditTimelineClip {
+  id: string
+  clipId: string
+  path: string
+  /** Trim start (seconds). Prefer inSec; `in` kept for older project files. */
+  inSec: number
+  outSec: number | null
+  /** @deprecated use inSec */
+  in?: number
+  /** @deprecated use outSec */
+  out?: number | null
+  enabled: boolean
+}
+
+export interface EditOverlay {
+  type: 'title' | 'subtitle' | 'lower_third' | 'cta'
+  start: number
+  end: number
+  text: string
+}
+
+export interface EditSuccessHint {
+  score: number
+  why: string[]
+}
+
+export interface EditOutput {
+  id: string
+  kind: 'long' | 'short'
+  aspect: '16:9' | '9:16'
+  title?: string
+  topic?: string
+  source: 'proposed' | 'pinned'
+  /** For pinned Shorts: which day-pool clips are reserved */
+  clipIds: string[]
+  shortsOnly?: boolean
+  success?: EditSuccessHint
+  proposalReasons: string[]
+  timeline: {
+    clips: EditTimelineClip[]
+    overlays: EditOverlay[]
+  }
+  exportPath?: string | null
+}
+
+export interface EditProject {
+  version: 1
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  projectPath: string
+  clips: EditClip[]
+  sectionHints: EditSectionHint[]
+  shortBins: EditShortBin[]
+  briefing: EditBriefing
+  outputs: EditOutput[]
+  status: 'draft' | 'proposed' | 'exported'
+}
+
+export interface EditProjectSummary {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  projectPath: string
+  clipCount: number
+  longCount: number
+  shortsCount: number
+  status: EditProject['status']
+}
+
+export type EditExportQuality = 'draft' | 'good' | 'high'
+export type EditExportResolution = '720' | '1080' | '1440'
+
+export interface EditExportOptions {
+  quality: EditExportQuality
+  resolution: EditExportResolution
+  burnTitle: boolean
+  fps: 24 | 30 | 60
+}
+
+export const DEFAULT_EDIT_EXPORT_OPTIONS: EditExportOptions = {
+  quality: 'good',
+  resolution: '1080',
+  burnTitle: true,
+  fps: 30
+}
+
+export const DEFAULT_EDIT_BRIEFING: EditBriefing = {
+  title: '',
+  subtitle: '',
+  cta: 'Subscribe for more',
+  look: 'warm',
+  musicMood: 'chill',
+  texts: [],
+  format: { longCount: 1, shortsCount: 5 },
+  longTargetMin: 10,
+  shortMaxSec: 60
+}
+
+export function createEmptyEditProject(
+  id: string,
+  name: string,
+  projectPath: string
+): EditProject {
+  const now = new Date().toISOString()
+  return {
+    version: 1,
+    id,
+    name,
+    createdAt: now,
+    updatedAt: now,
+    projectPath,
+    clips: [],
+    sectionHints: [],
+    shortBins: [],
+    briefing: { ...DEFAULT_EDIT_BRIEFING, texts: [] },
+    outputs: [],
+    status: 'draft'
+  }
+}
+
+/** Normalize project JSON from disk/IPC so the Editor never crashes on missing fields. */
+export function normalizeEditProject(raw: EditProject): EditProject {
+  const briefing = {
+    ...DEFAULT_EDIT_BRIEFING,
+    ...(raw?.briefing || {}),
+    format: {
+      ...DEFAULT_EDIT_BRIEFING.format,
+      ...(raw?.briefing?.format || {})
+    },
+    texts: Array.isArray(raw?.briefing?.texts) ? raw.briefing.texts : []
+  }
+  const outputs = Array.isArray(raw?.outputs)
+    ? raw.outputs.map((o) => {
+        const clips = Array.isArray(o?.timeline?.clips)
+          ? o.timeline.clips.map((c) => {
+              const inSec = Number(c.inSec ?? c.in ?? 0)
+              const outRaw = c.outSec ?? c.out
+              return {
+                id: c.id || `tc-${Math.random().toString(36).slice(2, 8)}`,
+                clipId: c.clipId,
+                path: c.path,
+                inSec: Number.isFinite(inSec) ? inSec : 0,
+                outSec: outRaw == null ? null : Number(outRaw),
+                enabled: c.enabled !== false
+              }
+            })
+          : []
+        return {
+          ...o,
+          id: o.id || 'output',
+          kind: o.kind === 'short' ? 'short' : 'long',
+          aspect: o.aspect === '9:16' ? '9:16' : '16:9',
+          source: o.source === 'pinned' ? 'pinned' : 'proposed',
+          clipIds: Array.isArray(o.clipIds) ? o.clipIds : [],
+          proposalReasons: Array.isArray(o.proposalReasons) ? o.proposalReasons : [],
+          success: o.success
+            ? {
+                score: Number(o.success.score) || 0,
+                why: Array.isArray(o.success.why) ? o.success.why.map(String) : []
+              }
+            : undefined,
+          timeline: {
+            clips,
+            overlays: Array.isArray(o?.timeline?.overlays) ? o.timeline.overlays : []
+          },
+          exportPath: o.exportPath ?? null
+        } as EditOutput
+      })
+    : []
+  return {
+    version: 1,
+    id: raw?.id || 'unknown',
+    name: raw?.name || 'Untitled',
+    createdAt: raw?.createdAt || new Date().toISOString(),
+    updatedAt: raw?.updatedAt || new Date().toISOString(),
+    projectPath: raw?.projectPath || '',
+    clips: Array.isArray(raw?.clips) ? raw.clips : [],
+    sectionHints: Array.isArray(raw?.sectionHints) ? raw.sectionHints : [],
+    shortBins: Array.isArray(raw?.shortBins) ? raw.shortBins : [],
+    briefing,
+    outputs,
+    status: raw?.status === 'proposed' || raw?.status === 'exported' ? raw.status : 'draft'
+  }
+}
 
 export interface AppSettings {
   whisperModel: 'tiny' | 'base' | 'small'
@@ -521,4 +756,11 @@ export interface VoicesProgressEvent {
   stage: string
   percent: number
   message: string
+  phase?: string | null
+  phasePercent?: number | null
+  clipIndex?: number | null
+  clipTotal?: number | null
+  clipName?: string | null
 }
+
+export type EditorProgressEvent = VoicesProgressEvent
