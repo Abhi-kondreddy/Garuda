@@ -1,0 +1,7 @@
+{
+  "_comment": "Bundled model manifest. Drop ONNX files here and pin sha256. All are optional; absent models degrade to 'unavailable' metrics.",
+  "aesthetic": { "file": "aesthetic_nima.onnx", "sha256": "", "version": "nima-1", "kind": "image-aesthetic" },
+  "shottype": { "file": "shot_type.onnx", "sha256": "", "version": "shot-1", "kind": "image-cls" },
+  "emotion": { "file": "emotion_fer.onnx", "sha256": "", "version": "fer-1", "kind": "face-emotion" },
+  "objecttags": { "file": "object_tags.onnx", "sha256": "", "version": "obj-1", "kind": "detector" }
+}

@@ -1,0 +1,8 @@
+# Optional Voices module dependencies (heavy — several GB of models).
+# Only needed for speaker separation / diarization / enhancement / remix.
+pedalboard>=0.9.0
+torch>=2.0
+torchaudio>=2.0
+pyannote.audio>=3.1
+speechbrain>=1.0
+deepfilternet>=0.5

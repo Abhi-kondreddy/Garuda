@@ -25,6 +25,7 @@ export interface GarudaApi {
   loadReport: (reportPath: string) => Promise<AnalysisReport>
   listReports: () => Promise<PastReportSummary[]>
   openReportFolder: (reportPath: string) => Promise<void>
+  exportCaptions: (reportPath: string) => Promise<{ srt: string; vtt: string } | null>
   deleteReport: (reportPath: string) => Promise<PastReportSummary[]>
   mediaUrl: (filePath: string) => Promise<string | null>
   getSettings: () => Promise<AppSettings>
@@ -81,6 +82,7 @@ const api: GarudaApi = {
   loadReport: (reportPath) => ipcRenderer.invoke('report:load', reportPath),
   listReports: () => ipcRenderer.invoke('report:list'),
   openReportFolder: (reportPath) => ipcRenderer.invoke('report:openFolder', reportPath),
+  exportCaptions: (reportPath) => ipcRenderer.invoke('report:exportCaptions', reportPath),
   deleteReport: (reportPath) => ipcRenderer.invoke('report:delete', reportPath),
   mediaUrl: (filePath) => ipcRenderer.invoke('media:url', filePath),
   getSettings: () => ipcRenderer.invoke('settings:get'),

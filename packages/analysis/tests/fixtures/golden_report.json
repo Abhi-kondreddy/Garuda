@@ -1,0 +1,11 @@
+{
+  "scoringVersion": "2026.08-heur1",
+  "scores": {
+    "hook": 39.2,
+    "interestingness": 17.4,
+    "colorEvenness": 100.0,
+    "visualQuality": 90.3,
+    "audioQuality": 10.0,
+    "overall": 44.0
+  }
+}

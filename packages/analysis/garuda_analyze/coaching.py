@@ -3,12 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .deep_analysis import build_deep_analysis
-
-
-def _fmt(t: float) -> str:
-    m = int(t // 60)
-    s = int(t % 60)
-    return f"{m}:{s:02d}"
+from .util import fmt_timecode as _fmt
 
 
 def _first_speech(transcript: list[dict]) -> float | None:
@@ -401,6 +396,19 @@ def build_pacing_coach(
         )
 
     long_gaps = [g for g in silence_gaps if float(g["end"]) - float(g["start"]) >= 1.5]
+
+    # Attach a representative seek time so coach-feed items don't all jump to 0:00.
+    first_gap_t = 0.0
+    for g in silence_gaps:
+        try:
+            if float(g["end"]) - float(g["start"]) >= 0.8:
+                first_gap_t = round(float(g["start"]), 2)
+                break
+        except (KeyError, TypeError, ValueError):
+            continue
+    for tip in tips:
+        tip["t"] = first_gap_t if tip["id"] == "dead_air" else tip.get("t", 0.0)
+
     score = 100.0
     for t in tips:
         if t["severity"] == "high":

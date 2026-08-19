@@ -1,0 +1,10 @@
+# Optional accuracy upgrades for the analysis engine.
+# The engine falls back to built-in heuristics (histogram scene cuts, RMS
+# loudness proxy) when these are not installed.
+scenedetect>=0.6,<0.7   # content/adaptive scene-cut detection
+pyloudnorm>=0.1          # EBU R128 integrated loudness (LUFS)
+
+# YuNet DNN face detection also needs the model file at packages/analysis/models/
+#   face_detection_yunet_2023mar.onnx  (else the engine falls back to Haar).
+# Download from the OpenCV Zoo:
+#   https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet

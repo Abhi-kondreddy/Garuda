@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import multiprocessing as mp
+import os
+import queue as queue_mod
 import socket
-import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -223,13 +225,88 @@ def _emit(
     on_progress(pct, message, phase=phase, phase_percent=phase_percent)
 
 
-def _load_model(model_size: str, result: dict, error: list) -> None:
+def _resolve_compute() -> tuple[str, str]:
+    """Pick faster-whisper device/compute. Env overrides let power users opt
+    into GPU/Metal builds; the safe default stays CPU int8."""
+    device = os.environ.get("GARUDA_WHISPER_DEVICE", "cpu").strip() or "cpu"
+    compute = os.environ.get("GARUDA_WHISPER_COMPUTE", "").strip()
+    if not compute:
+        compute = "int8" if device == "cpu" else "float16"
+    return device, compute
+
+
+def _asr_worker(
+    wav_path_str: str,
+    model_size: str,
+    device: str,
+    compute_type: str,
+    beam_size: int,
+    word_timestamps: bool,
+    q: "mp.Queue",
+) -> None:
+    """Runs in a separate process so a hung load/transcribe can be terminated.
+
+    Emits ``(kind, payload)`` tuples: ``model_loaded``, ``detected``,
+    ``segment`` (a plain dict), ``done``, or ``error``. Everything put on the
+    queue is picklable (no model objects cross the boundary).
+    """
     try:
         from faster_whisper import WhisperModel
 
-        result["model"] = WhisperModel(model_size, device="cpu", compute_type="int8")
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        q.put(("model_loaded", None))
+        segments_iter, info = model.transcribe(
+            wav_path_str,
+            beam_size=beam_size,
+            vad_filter=True,
+            word_timestamps=word_timestamps,
+            language=None,
+        )
+        q.put(("detected", getattr(info, "language", None)))
+        for seg in segments_iter:
+            text = (seg.text or "").strip()
+            if not text:
+                continue
+            avg_lp = (
+                float(seg.avg_logprob) if getattr(seg, "avg_logprob", None) is not None else -1.0
+            )
+            words = None
+            if word_timestamps and getattr(seg, "words", None):
+                words = [
+                    {"start": float(w.start or 0), "end": float(w.end or 0), "word": w.word}
+                    for w in seg.words
+                    if getattr(w, "word", None)
+                ]
+            q.put(
+                (
+                    "segment",
+                    {
+                        "start": float(seg.start or 0),
+                        "end": float(seg.end or 0),
+                        "text": text,
+                        "avg_logprob": avg_lp,
+                        "words": words,
+                    },
+                )
+            )
+        q.put(("done", None))
     except Exception as exc:  # noqa: BLE001
-        error.append(exc)
+        q.put(("error", f"{exc.__class__.__name__}: {exc}"))
+
+
+def _finalize_segment(raw: dict, detected: str | None) -> dict:
+    text = raw["text"]
+    avg_lp = float(raw.get("avg_logprob", -1.0))
+    seg = {
+        "start": float(raw.get("start") or 0.0),
+        "end": float(raw.get("end") or 0.0),
+        "text": text,
+        "language": _classify_language(detected, text),
+        "confidence": max(0.0, min(1.0, 1.0 + avg_lp)),
+    }
+    if raw.get("words"):
+        seg["words"] = raw["words"]
+    return seg
 
 
 def run_asr(
@@ -238,12 +315,20 @@ def run_asr(
     model_size: str = "base",
     on_progress: ProgressCb | None = None,
     load_timeout_sec: float = 180.0,
+    transcribe_timeout_sec: float = 3600.0,
+    beam_size: int = 1,
+    word_timestamps: bool = False,
 ) -> list[dict]:
-    """Run local ASR with faster-whisper. Falls back to empty transcript if unavailable."""
+    """Run local ASR with faster-whisper in a killable child process.
+
+    Falls back to an empty/partial transcript (never raises) if the model is
+    unavailable, the load times out, transcription crashes mid-stream, or the
+    process overruns its wall-clock budget.
+    """
     _force_ipv4()
 
     try:
-        from faster_whisper import WhisperModel  # noqa: F401
+        import faster_whisper  # noqa: F401
     except Exception as exc:  # noqa: BLE001
         _emit(
             on_progress,
@@ -265,112 +350,114 @@ def run_asr(
             phase_percent=2,
         )
 
-    stop_heartbeat = threading.Event()
-
-    def heartbeat() -> None:
-        started = time.time()
-        n = 0
-        while not stop_heartbeat.wait(2.0):
-            n += 1
-            elapsed = int(time.time() - started)
-            pct = min(28, 10 + n)
-            # Soft phase bar: climbs toward 90 while waiting (unknown true download %)
-            phase_pct = min(90, 5 + elapsed * (4 if cached else 2))
-            msg = (
-                f"Loading Whisper '{model_size}'… {elapsed}s"
-                if cached
-                else f"Downloading Whisper '{model_size}'… {elapsed}s (first run)"
-            )
-            _emit(on_progress, pct, msg, phase=phase, phase_percent=phase_pct)
-
-    result: dict = {}
-    error: list = []
-    hb = threading.Thread(target=heartbeat, daemon=True)
-    hb.start()
-    loader = threading.Thread(target=_load_model, args=(model_size, result, error), daemon=True)
-    loader.start()
-    loader.join(timeout=load_timeout_sec)
-    stop_heartbeat.set()
-
-    if loader.is_alive():
+    device, compute_type = _resolve_compute()
+    try:
+        ctx = mp.get_context("spawn")
+        q: "mp.Queue" = ctx.Queue()
+        proc = ctx.Process(
+            target=_asr_worker,
+            args=(str(wav_path), model_size, device, compute_type, beam_size, word_timestamps, q),
+            daemon=True,
+        )
+        proc.start()
+    except Exception as exc:  # noqa: BLE001 — spawning unavailable/blocked
         _emit(
             on_progress,
             100,
-            f"Whisper load timed out after {int(load_timeout_sec)}s — continuing without transcript",
+            f"ASR could not start ({exc.__class__.__name__}) — continuing without transcript",
             phase=phase,
             phase_percent=100,
         )
         return []
 
-    if error:
-        exc = error[0]
-        _emit(
-            on_progress,
-            100,
-            f"Whisper failed ({exc.__class__.__name__}: {exc}) — continuing without transcript",
-            phase=phase,
-            phase_percent=100,
-        )
-        return []
+    segments: list[dict] = []
+    detected: str | None = None
+    loaded = False
+    started = time.time()
+    load_deadline = started + load_timeout_sec
+    transcribe_deadline = None  # set once the model reports loaded
 
-    model = result.get("model")
-    if model is None:
-        _emit(on_progress, 100, "Whisper model missing — continuing without transcript")
-        return []
-
-    _emit(
-        on_progress,
-        32,
-        "Whisper ready — transcribing audio (auto language detect)…",
-        phase="transcribe",
-        phase_percent=0,
-    )
+    def _stop(message: str, terminal: bool = True) -> None:
+        if terminal:
+            _emit(on_progress, 100, message, phase="transcribe", phase_percent=100)
+        try:
+            if proc.is_alive():
+                proc.terminate()
+        except Exception:
+            pass
 
     try:
-        segments_iter, info = model.transcribe(
-            str(wav_path),
-            beam_size=1,
-            vad_filter=True,
-            word_timestamps=False,
-            language=None,
-        )
-    except Exception as exc:  # noqa: BLE001
-        _emit(
-            on_progress,
-            100,
-            f"Transcription failed ({exc.__class__.__name__}) — continuing without transcript",
-            phase="transcribe",
-            phase_percent=100,
-        )
-        return []
+        while True:
+            try:
+                kind, payload = q.get(timeout=1.0)
+            except queue_mod.Empty:
+                now = time.time()
+                if not loaded and now > load_deadline:
+                    _stop(
+                        f"Whisper load timed out after {int(load_timeout_sec)}s — continuing without transcript"
+                    )
+                    return []
+                if loaded and transcribe_deadline and now > transcribe_deadline:
+                    _stop(
+                        f"Transcription exceeded {int(transcribe_timeout_sec)}s — using partial transcript"
+                    )
+                    break
+                if not proc.is_alive():
+                    # died without a terminal message
+                    _stop("ASR process exited early — continuing without transcript")
+                    break
+                elapsed = int(time.time() - started)
+                if not loaded:
+                    phase_pct = min(90, 5 + elapsed * (4 if cached else 2))
+                    msg = (
+                        f"Loading Whisper '{model_size}'… {elapsed}s"
+                        if cached
+                        else f"Downloading Whisper '{model_size}'… {elapsed}s (first run)"
+                    )
+                    _emit(on_progress, min(28, 10 + elapsed // 2), msg, phase=phase, phase_percent=phase_pct)
+                continue
 
-    detected = getattr(info, "language", None)
-    segments: list[dict] = []
-    for i, seg in enumerate(segments_iter):
-        text = (seg.text or "").strip()
-        if not text:
-            continue
-        lang = _classify_language(detected, text)
-        avg_lp = float(seg.avg_logprob) if getattr(seg, "avg_logprob", None) is not None else -1.0
-        segments.append(
-            {
-                "start": float(seg.start or 0),
-                "end": float(seg.end or 0),
-                "text": text,
-                "language": lang,
-                "confidence": max(0.0, min(1.0, 1.0 + avg_lp)),
-            }
-        )
-        if i % 2 == 0:
-            # Unknown total segments — climb asymptotically
-            phase_pct = min(95, 8 + i * 3)
-            _emit(
-                on_progress,
-                min(95, 32 + i * 2),
-                f"Transcribing… segment {i + 1}",
-                phase="transcribe",
-                phase_percent=phase_pct,
-            )
+            if kind == "model_loaded":
+                loaded = True
+                transcribe_deadline = time.time() + transcribe_timeout_sec
+                _emit(
+                    on_progress,
+                    32,
+                    "Whisper ready — transcribing audio (auto language detect)…",
+                    phase="transcribe",
+                    phase_percent=0,
+                )
+            elif kind == "detected":
+                detected = payload
+            elif kind == "segment":
+                segments.append(_finalize_segment(payload, detected))
+                i = len(segments)
+                if i % 2 == 1:
+                    _emit(
+                        on_progress,
+                        min(95, 32 + i * 2),
+                        f"Transcribing… segment {i}",
+                        phase="transcribe",
+                        phase_percent=min(95, 8 + i * 3),
+                    )
+            elif kind == "done":
+                break
+            elif kind == "error":
+                _emit(
+                    on_progress,
+                    100,
+                    f"Transcription failed ({payload}) — using {len(segments)} partial segment(s)",
+                    phase="transcribe",
+                    phase_percent=100,
+                )
+                break
+    finally:
+        try:
+            if proc.is_alive():
+                proc.terminate()
+            proc.join(timeout=5)
+        except Exception:
+            pass
 
     _emit(
         on_progress,

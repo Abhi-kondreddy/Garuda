@@ -1,0 +1,7 @@
+# Optional ML pack: enables aesthetics/shot-type/emotion/object metrics and
+# transformer-based sentiment/NER. All ML metrics degrade to "unavailable" when
+# these (or the bundled ONNX models) are absent.
+onnxruntime>=1.16
+torch>=2.0
+torchaudio>=2.0
+transformers>=4.40

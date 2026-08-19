@@ -85,6 +85,15 @@ export default function ReportScreen({
           </p>
         </div>
         <div className="report-actions">
+          {reportPath && (report.transcript?.length ?? 0) > 0 && (
+            <button
+              className="ghost-btn"
+              type="button"
+              onClick={() => void window.garuda.exportCaptions(reportPath)}
+            >
+              Export captions
+            </button>
+          )}
           {reportPath && (
             <button
               className="ghost-btn"

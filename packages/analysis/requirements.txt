@@ -1,9 +1,25 @@
+# Garuda analysis engine — CORE dependencies (required).
+# The engine runs and produces a full report with just these.
 numpy>=1.24,<2.1
 opencv-python-headless>=4.8,<5
 librosa>=0.10,<0.11
 soundfile>=0.12
 faster-whisper>=1.0,<2
-# Optional: pedalboard improves parametric FX (ffmpeg filters used as fallback)
-pedalboard>=0.9.0
-# Optional heavy models (install manually if desired):
-# pip install torch torchaudio pyannote.audio speechbrain deepfilternet
+
+# --- Optional add-ons (install what you need; each degrades gracefully) ---
+# See ../../INSTALL.md for the complete, detailed dependency reference.
+#
+# Accuracy upgrades (PySceneDetect cuts, true LUFS loudness):
+#   pip install -r requirements-accuracy.txt
+#
+# ML parameter pack (aesthetics/shot-type/emotion/object + transformer NLP):
+#   pip install -r requirements-ml.txt
+#
+# Report validation + calibration engine (recommended):
+#   pip install jsonschema scikit-learn
+#
+# Voices module (speaker separation / diarization / enhancement) — heavy:
+#   pip install -r requirements-voices.txt
+#
+# Or use pyproject extras, e.g.:
+#   pip install -e ".[accuracy,ml,validation,calibration,voices]"

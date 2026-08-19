@@ -15,6 +15,37 @@ dependencies = [
   "faster-whisper>=1.0,<2",
 ]
 
+[project.optional-dependencies]
+# Accuracy upgrades; engine degrades gracefully when absent.
+accuracy = [
+  "scenedetect>=0.6,<0.7",
+  "pyloudnorm>=0.1",
+]
+# Heavy Voices module models.
+voices = [
+  "pedalboard>=0.9.0",
+  "torch>=2.0",
+  "torchaudio>=2.0",
+  "pyannote.audio>=3.1",
+  "speechbrain>=1.0",
+  "deepfilternet>=0.5",
+]
+# ML parameter pack (aesthetics/shot-type/emotion/object + transformer NLP).
+ml = [
+  "onnxruntime>=1.16",
+  "torch>=2.0",
+  "torchaudio>=2.0",
+  "transformers>=4.40",
+]
+# Report schema validation.
+validation = [
+  "jsonschema>=4.0",
+]
+# Calibration engine.
+calibration = [
+  "scikit-learn>=1.2",
+]
+
 [project.scripts]
 garuda-analyze = "garuda_analyze.__main__:main"
 

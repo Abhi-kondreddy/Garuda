@@ -26,6 +26,7 @@ import type {
   AppSettings,
   DataStats,
   PastReportSummary,
+  TranscriptSegment,
   AnalyzerEvent,
   VoicesProject,
   SpeakersManifest,
@@ -35,7 +36,12 @@ import type {
   EditClip,
   EditExportOptions
 } from '../shared/types'
-import { DEFAULT_SETTINGS, createEmptyEditProject, normalizeEditProject } from '../shared/types'
+import {
+  DEFAULT_SETTINGS,
+  createEmptyEditProject,
+  normalizeEditProject,
+  normalizeReport
+} from '../shared/types'
 
 // Must be before app ready — allows <video> to stream local files.
 protocol.registerSchemesAsPrivileged([
@@ -382,6 +388,33 @@ function resolveFfmpeg(): { ffmpeg: string; ffprobe: string } {
     ffmpeg: existsSync(ffmpeg) ? ffmpeg : 'ffmpeg',
     ffprobe: existsSync(ffprobe) ? ffprobe : 'ffprobe'
   }
+}
+
+function subtitleTimestamp(t: number, sep: string): string {
+  const clamped = Math.max(0, t)
+  const h = Math.floor(clamped / 3600)
+  const m = Math.floor((clamped % 3600) / 60)
+  const s = Math.floor(clamped % 60)
+  let ms = Math.round((clamped - Math.floor(clamped)) * 1000)
+  if (ms >= 1000) ms = 999
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  return `${pad(h)}:${pad(m)}:${pad(s)}${sep}${pad(ms, 3)}`
+}
+
+function buildSubtitles(transcript: TranscriptSegment[]): { srt: string; vtt: string } {
+  let srt = ''
+  let n = 1
+  const vtt: string[] = ['WEBVTT', '']
+  for (const seg of transcript) {
+    const text = (seg.text || '').trim()
+    if (!text) continue
+    const start = seg.start || 0
+    const end = seg.end || 0
+    srt += `${n}\n${subtitleTimestamp(start, ',')} --> ${subtitleTimestamp(end, ',')}\n${text}\n\n`
+    vtt.push(`${subtitleTimestamp(start, '.')} --> ${subtitleTimestamp(end, '.')}`, text, '')
+    n += 1
+  }
+  return { srt, vtt: vtt.join('\n') }
 }
 
 function mediaContentType(filePath: string): string {
@@ -842,13 +875,33 @@ app.whenReady().then(() => {
 
   ipcMain.handle('report:load', (_e, reportPath: string) => {
     const raw = readFileSync(reportPath, 'utf8')
-    return JSON.parse(raw) as AnalysisReport
+    return normalizeReport(JSON.parse(raw) as AnalysisReport)
   })
 
   ipcMain.handle('report:list', () => listPastReports())
 
   ipcMain.handle('report:openFolder', (_e, reportPath: string) => {
     shell.showItemInFolder(reportPath)
+  })
+
+  ipcMain.handle('report:exportCaptions', (_e, reportPath: string) => {
+    if (!reportPath || !existsSync(reportPath)) return null
+    let report: AnalysisReport
+    try {
+      report = JSON.parse(readFileSync(reportPath, 'utf8')) as AnalysisReport
+    } catch {
+      return null
+    }
+    const segments = report.transcript || []
+    if (!segments.length) return null
+    const { srt, vtt } = buildSubtitles(segments)
+    const dir = dirname(reportPath)
+    const srtPath = join(dir, 'captions.srt')
+    const vttPath = join(dir, 'captions.vtt')
+    writeFileSync(srtPath, srt, 'utf8')
+    writeFileSync(vttPath, vtt, 'utf8')
+    shell.showItemInFolder(srtPath)
+    return { srt: srtPath, vtt: vttPath }
   })
 
   ipcMain.handle('report:delete', (_e, reportPath: string) => {

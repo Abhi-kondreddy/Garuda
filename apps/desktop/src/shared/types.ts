@@ -31,12 +31,19 @@ export interface DoneEvent {
 
 export type AnalyzerEvent = ProgressEvent | ErrorEvent | DoneEvent
 
+export interface WordTiming {
+  start: number
+  end: number
+  word: string
+}
+
 export interface TranscriptSegment {
   start: number
   end: number
   text: string
   language: string
   confidence: number
+  words?: WordTiming[]
 }
 
 export interface TimelinePoint {
@@ -74,6 +81,13 @@ export interface LanguageShare {
   percent: number
 }
 
+export interface DeliveryMetrics {
+  energyDynamics?: number
+  pitchHz?: number | null
+  pitchVarHz?: number | null
+  speechActivity?: number
+}
+
 export interface AudioMetrics {
   loudnessConsistency: number
   clarity: number
@@ -87,6 +101,11 @@ export interface AudioMetrics {
   languageBreakdown?: LanguageShare[]
   estimatedWpm: number | null
   silenceGaps: Array<{ start: number; end: number }>
+  /** Integrated loudness (EBU R128) and platform target in LUFS. */
+  lufs?: number | null
+  lufsTarget?: number | null
+  lufsGap?: number | null
+  delivery?: DeliveryMetrics
 }
 
 export interface VisualMetrics {
@@ -99,8 +118,121 @@ export interface VisualMetrics {
   onCamPresence: number
 }
 
+export interface Chapter {
+  t: number
+  time: string
+  title: string
+}
+
+export interface Keyword {
+  term: string
+  count: number
+}
+
+export interface FaceBox {
+  t: number
+  cx: number
+  cy: number
+  w: number
+  h: number
+}
+
+export interface RetentionPoint {
+  t: number
+  retention: number
+  dropRisk: number
+}
+
+export interface RetentionCurve {
+  points: RetentionPoint[]
+  predictedRetention: number | null
+  worstDropT: number | null
+}
+
+export interface BrollSegment {
+  start: number
+  end: number
+  kind: 'talking_head' | 'broll'
+}
+
+export interface Framing {
+  hasFaceData: boolean
+  meanCenter?: { cx: number; cy: number } | null
+  ruleOfThirds?: boolean
+  findings: CoachFinding[]
+  brollTimeline: BrollSegment[]
+}
+
+export interface ThumbnailFile {
+  t: number
+  path: string
+}
+
+export interface MetricContract {
+  id: string
+  label: string
+  value: number | string | boolean | number[] | null
+  unit: string
+  range: [number, number] | null
+  method: string
+  version: string
+  confidence: number
+  lowConfidence: boolean
+  evidence: Array<{ t: number; tEnd?: number }>
+  severity: 'low' | 'medium' | 'high' | null
+  recommendation: string | null
+  group: string
+}
+
+export interface Provenance {
+  scoringVersion: string
+  engine: string
+  python: string
+  platform: string
+  configHash: string
+  seed: number
+  ffmpeg?: string | null
+  ffprobe?: string | null
+  models: Record<string, string>
+}
+
+export interface PredictionInterval {
+  value: number
+  lo: number
+  hi: number
+}
+
+export interface Predictions {
+  calibrationVersion: string
+  method: string
+  targets: Record<string, PredictionInterval>
+  retentionCurve?: Array<{ tFrac: number; retentionPct: number }>
+}
+
+export interface DropRiskPoint {
+  t: number
+  risk: number
+  reasons: string[]
+}
+
+export interface MetricDriver {
+  metricId: string
+  label: string
+  value: number | string | boolean | number[] | null
+  severity: string
+  recommendation: string
+  t: number
+}
+
+export interface MetricBenchmark {
+  percentile: number
+  cohortN: number
+}
+
 export interface AnalysisReport {
   version: 1 | 2 | 3
+  /** Heuristic scoring model version (distinct from schema `version`). */
+  scoringVersion?: string
   createdAt: string
   sourcePath: string
   sourceName: string
@@ -124,8 +256,40 @@ export interface AnalysisReport {
   riskZones: RiskZone[]
   highlights: Highlight[]
   palette: PaletteColor[]
+  chapters?: Chapter[]
+  keywords?: Keyword[]
+  faceBoxes?: FaceBox[]
+  retentionCurve?: RetentionCurve
+  retentionCurveCalibrated?: Array<{ tFrac: number; retentionPct: number }>
+  framing?: Framing
+  thumbnailFiles?: ThumbnailFile[]
+  /** Metric-contract layer: every parameter with unit/range/method/confidence. */
+  metrics?: Record<string, MetricContract>
+  provenance?: Provenance
+  diagnostics?: Record<string, unknown>
+  predictions?: Predictions
+  benchmarks?: Record<string, MetricBenchmark>
+  dropRiskTimeline?: DropRiskPoint[]
+  topDrivers?: MetricDriver[]
+  contentHash?: string
   notes: string[]
   companion?: CompanionBundle
+}
+
+/** Defensive backfill so older/newer reports never crash consumers. */
+export function normalizeReport(raw: AnalysisReport): AnalysisReport {
+  const r = { ...(raw || {}) } as AnalysisReport
+  r.timeline = Array.isArray(r.timeline) ? r.timeline : []
+  r.transcript = Array.isArray(r.transcript) ? r.transcript : []
+  r.riskZones = Array.isArray(r.riskZones) ? r.riskZones : []
+  r.highlights = Array.isArray(r.highlights) ? r.highlights : []
+  r.palette = Array.isArray(r.palette) ? r.palette : []
+  r.waveform = Array.isArray(r.waveform) ? r.waveform : []
+  r.notes = Array.isArray(r.notes) ? r.notes : []
+  r.metrics = r.metrics && typeof r.metrics === 'object' ? r.metrics : {}
+  r.dropRiskTimeline = Array.isArray(r.dropRiskTimeline) ? r.dropRiskTimeline : []
+  r.topDrivers = Array.isArray(r.topDrivers) ? r.topDrivers : []
+  return r
 }
 
 export interface CoachFinding {

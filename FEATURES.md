@@ -18,6 +18,26 @@ Local-first desktop app for YouTube creators. Everything runs on your machine; a
 | Skip ASR option | Done | Settings / pipeline flag |
 | Saved reports + reopen from home / library | Done | `userData/garuda/reports/` |
 | Companion coaching (cuts, Shorts windows, hooks) | Done | On the report |
+| SRT / VTT caption export | Done | Written next to report; "Export captions" on report |
+| YouTube chapters from transcript + scene cuts | Done | `report.chapters` |
+| Keyword / SEO pack from transcript | Done | `report.keywords` |
+| Face-aware thumbnail candidate JPEGs | Done | `report.thumbnailFiles` (peak frames, subject-cropped) |
+| Retention-risk curve + worst-drop marker | Done | `report.retentionCurve` |
+| Framing checks + b-roll vs talking-head timeline | Done | `report.framing` (needs face data) |
+| True integrated loudness (LUFS) + platform target | Done | `report.audio.lufs` / `lufsGap` (via pyloudnorm) |
+| DNN face detection (YuNet) with Haar fallback | Done | Bundle YuNet ONNX to enable; else Haar |
+| PySceneDetect content cuts (short clips) | Partial | Used when installed and clip ≤ 30 min; else histogram cuts |
+| Resilience: subprocess timeouts, partial reports, NaN-safe JSON | Done | Engine can't hang/crash the run or corrupt the stream |
+| Versioned scoring model + centralized tunables | Done | `report.scoringVersion`, `garuda_analyze/config.py` |
+| Metric-contract layer (~56 params w/ unit, range, method, confidence, evidence) | Done | `report.metrics`; plugin registry in `metrics.py` |
+| Parameter catalog: exposure/WB, sharpness/shake, framing, LUFS/true-peak/SNR/hum, fillers/readability/safety, technical QC | Done | `vision_*`, `audio_quality2`, `nlp`, `qc` plugins |
+| ML params (aesthetics/shot-type/emotion/objects, sentiment, NER) | Partial | `ml_vision`/`nlp_ml`; activate by bundling ONNX + `requirements-ml.txt` |
+| Accessibility/compliance (PSE flash, caption speed; WCAG contrast/copyright/PII stubs) | Partial | `accessibility.py` |
+| Provenance + diagnostics + preflight QC + wall-clock/mem watchdog | Done | `provenance.py`, `preflight.py`, `watchdog.py` |
+| Report JSON Schema validation + atomic write | Done | `schema/report.schema.json`, `validation.py` |
+| Calibration engine (train on YT retention/CTR -> predictions + confidence intervals) | Done | `calibration/`; heuristic fallback when untrained |
+| Percentile benchmarks vs history + multimodal drop-risk + top drivers | Done | `benchmark.py`, `fusion.py`, `report.topDrivers` |
+| Content-hash for cache/dedupe | Done | `cache.py`, `report.contentHash` |
 
 ---
 
@@ -76,6 +96,43 @@ Route: **EDITOR** (`Cmd/Ctrl+4`). Projects under `userData/garuda/projects/`.
 
 ---
 
+## Future enhancements (analysis roadmap)
+
+The raw measurement catalog is largely saturated; the next frontier is derived /
+comparative / predictive features that combine the existing metrics. Not yet
+shipped:
+
+**Derived / comparative**
+- Per-segment / per-chapter scorecards (hook/pacing/retention/energy graded per chapter, not just global + timeline).
+- Comparative analysis vs a reference/competitor video (gap report).
+- Real A/B diff of two cuts of the same video (measured, not the current `beforeAfter` simulation).
+- Niche/topic classification + niche-specific norms (baselines per genre).
+
+**New signals**
+- Music/beat analysis: BPM, beat grid, cut-on-beat adherence, drop detection.
+- Cross-modal moment detection: laughter, applause, silence→punchline, on-screen-text appearance.
+
+**Scorecards / deliverables**
+- Consolidated Accessibility scorecard (flash + captions + contrast + audio-description need as one grade).
+- Hardened "publish-readiness" gate with platform presets (YouTube long / Shorts / Reels).
+- Loudness one-click fix recipe (emit the exact `ffmpeg loudnorm` command to hit target).
+
+**Predictive (gated on calibration data)**
+- Calibrated virality / clip finder (rank clippable 15–60s windows by predicted performance).
+- Rank `topDrivers` by predicted retention delta instead of severity.
+
+**Quality / rigor (from the review of the current engine)**
+- Full-resolution / ffmpeg `signalstats`-based vision QC (vs the 160×90 proxy).
+- Data-driven `confidence` (from #frames, SNR, transcript coverage) instead of fixed constants.
+- Implement the `unavailable` stubs: A/V sync, stereo balance (needs stereo extract), reverb RT60, horizon (Hough), on-screen-text legibility (OCR).
+- Multilingual correctness: gate Flesch-Kincaid to Latin script; non-English filler/sentiment lexicons.
+- Determinism for the ML/ASR path (torch seeds/flags); real-media CI + `hypothesis` property tests.
+
+**Crosses out of "analysis" (Editor/renderer/UX)**
+- Auto-EDL / auto-cut export, shareable PDF/HTML report, `chapters.txt`/tags export, real-time "record with live hook feedback", channel-level dashboards, and the parked Lakshya cloud integration.
+
+---
+
 ## Explicitly out of scope for now
 
 These were considered for a later “YouTube packager” phase and are **not** shipped:
@@ -84,7 +141,7 @@ These were considered for a later “YouTube packager” phase and are **not** s
 - LLM copy / reorder assist
 - Background music ducking under speech
 - Full end-card graphics / mid-roll text overlays beyond simple title burn
-- Per-output thumbnails + Studio description paste pack
+- Studio description paste pack (analysis now emits thumbnail candidates + keyword pack, but not a full paste bundle)
 - Adaptive AI that “gets smarter” over time
 
 When we add them, update this file and keep Editor propose API pluggable.
@@ -106,4 +163,4 @@ Progress events are newline-delimited JSON (`progress` / `error` / `done`).
 
 ---
 
-*Last updated: 2026-08-18 — reflects Editor deep propose, progress UI, and deferred middle-cut / packager items.*
+*Last updated: 2026-08-20 — analysis-engine overhaul + "legendary" build: metric-contract layer (~56 params), plugin registry, provenance/diagnostics, preflight QC + watchdog, JSON-Schema validation, a full parameter catalog (vision/audio/NLP/QC + optional ML), a calibration engine with confidence intervals, benchmarks, multimodal drop-risk, and explainable top drivers.*

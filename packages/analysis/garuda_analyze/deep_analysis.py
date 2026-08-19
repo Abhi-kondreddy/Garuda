@@ -3,15 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
-def _fmt(t: float) -> str:
-    m = int(max(0, t) // 60)
-    s = int(max(0, t) % 60)
-    return f"{m}:{s:02d}"
-
-
-def _clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
-    return float(max(lo, min(hi, v)))
+from .util import clamp as _clamp, fmt_timecode as _fmt
 
 
 _VAGUE_OPENERS = re.compile(
@@ -239,7 +231,15 @@ def build_pattern_interrupts(
     avg_gap = float(sum(gaps) / max(len(gaps), 1)) if gaps else duration
     ideal = (target[0] + target[1]) / 2
     score = _clamp(100 - abs(avg_gap - ideal) * (12 if fmt == "shorts" else 4))
-    long_gaps = [{"start": round(events[i], 2) if i >= 0 else 0.0, "end": round(events[i + 1], 2), "gap": round(events[i + 1] - events[i], 2)} for i in range(len(events) - 1) if events[i + 1] - events[i] > target[1] * 1.4]
+    long_gaps = [
+        {
+            "start": round(events[i], 2),
+            "end": round(events[i + 1], 2),
+            "gap": round(events[i + 1] - events[i], 2),
+        }
+        for i in range(len(events) - 1)
+        if events[i + 1] - events[i] > target[1] * 1.4
+    ]
     # also gap from 0
     if events and events[0] > target[1] * 1.2:
         long_gaps.insert(0, {"start": 0.0, "end": events[0], "gap": round(events[0], 2)})
