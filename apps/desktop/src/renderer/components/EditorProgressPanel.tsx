@@ -27,6 +27,13 @@ function normalizeStage(stage: string): StageId {
   return 'propose'
 }
 
+function formatClock(sec: number): string {
+  const s = Math.max(0, Math.ceil(sec))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `${s}s`
+}
+
 function phaseLabel(phase?: string | null): string {
   const labels: Record<string, string> = {
     probe: 'Probing media',
@@ -151,7 +158,17 @@ export default function EditorProgressPanel({
         <div className="epp-track epp-track-phase">
           <div className="epp-fill epp-fill-phase" style={{ width: `${phasePercent}%` }} />
         </div>
-        <p className="epp-msg">{progress?.message || 'Working…'}</p>
+        <p className="epp-msg">
+          {progress?.message || 'Working…'}
+          <span className="epp-timing mono">
+            {typeof progress?.elapsedSec === 'number' && (
+              <> · {formatClock(progress.elapsedSec)} elapsed</>
+            )}
+            {typeof progress?.etaSec === 'number' && progress.etaSec > 0 && (
+              <> · ~{formatClock(progress.etaSec)} remaining</>
+            )}
+          </span>
+        </p>
       </div>
 
       {clipTotal != null && clipTotal > 0 && (

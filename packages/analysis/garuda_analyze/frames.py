@@ -7,6 +7,8 @@ from typing import Callable
 import cv2
 import numpy as np
 
+from .performance import yield_frame_tick
+
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
@@ -58,6 +60,9 @@ def analyze_frames(
     )
     face_hits = 0
     face_checks = 0
+    face_area_ratios: list[float] = []
+    face_center_offsets: list[float] = []
+    face_center_xs: list[float] = []
     # Dense face sampling ~3 fps equivalent
     face_stride = max(1, int(round(fps / 3.0))) if fps > 0 else 10
 
@@ -116,8 +121,15 @@ def analyze_frames(
             faces = face_cascade.detectMultiScale(g, scaleFactor=1.15, minNeighbors=4, minSize=(24, 24))
             if len(faces) > 0:
                 face_hits += 1
+                x, y, fw, fh = max(faces, key=lambda f: int(f[2]) * int(f[3]))
+                frame_area = float(mid.shape[0] * mid.shape[1])
+                face_area_ratios.append((float(fw) * float(fh)) / max(frame_area, 1.0))
+                cx = (float(x) + float(fw) / 2.0) / max(float(mid.shape[1]), 1.0)
+                face_center_offsets.append(abs(cx - 0.5))
+                face_center_xs.append(cx)
 
         frame_idx += 1
+        yield_frame_tick()
         # Throttle progress (~2% steps) so Electron IPC stays responsive
         step = max(1, total // 50) if total > 0 else 30
         if total > 0 and frame_idx % step == 0:
@@ -143,6 +155,10 @@ def analyze_frames(
             "scene_cuts": [],
             "palette": [],
             "on_cam_presence": 0.0,
+            "face_avg_area_ratio": 0.0,
+            "face_center_offset": 0.5,
+            "face_center_x": 0.5,
+            "vertical_crop_safe": 50.0,
             "hue_means": [],
             "sat_means": [],
             "timeline_bins": [],
@@ -179,6 +195,24 @@ def analyze_frames(
         for rgb, count in palette_counter.most_common(6)
     ]
 
+    on_cam = face_hits / max(face_checks, 1)
+    face_avg_area = float(np.mean(face_area_ratios)) if face_area_ratios else 0.0
+    face_center = float(np.mean(face_center_offsets)) if face_center_offsets else 0.5
+    face_center_x = float(np.mean(face_center_xs)) if face_center_xs else 0.5
+    # 9:16 crop safety: centered face + reasonable size
+    vertical_crop_safe = float(
+        max(
+            0.0,
+            min(
+                100.0,
+                55.0
+                + 30.0 * (1.0 - min(1.0, face_center * 2.0))
+                + 15.0 * min(1.0, face_avg_area * 8.0)
+                + 10.0 * on_cam,
+            ),
+        )
+    )
+
     return {
         "frame_count": frame_idx,
         "brightness": brightness,
@@ -187,7 +221,11 @@ def analyze_frames(
         "times": times,
         "scene_cuts": scene_cuts,
         "palette": palette,
-        "on_cam_presence": face_hits / max(face_checks, 1),
+        "on_cam_presence": on_cam,
+        "face_avg_area_ratio": round(face_avg_area, 4),
+        "face_center_offset": round(face_center, 4),
+        "face_center_x": round(face_center_x, 4),
+        "vertical_crop_safe": round(vertical_crop_safe, 1),
         "hue_means": hue_means,
         "sat_means": sat_means,
         "timeline_bins": timeline_bins,

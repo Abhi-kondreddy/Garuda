@@ -3,6 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
+from .clip_similarity import clip_similarity, find_near_duplicates
+from .jump_cuts import middle_jump_segments
+
 
 def _clip_duration(clip: dict, report: Optional[dict] = None) -> float:
     if report and report.get("durationSec"):
@@ -37,6 +40,76 @@ def _silence_gaps(report: Optional[dict]) -> list[dict]:
     audio = report.get("audio") or {}
     return list(audio.get("silenceGaps") or [])
 
+
+def _pacing_rank_bonus(report: Optional[dict], *, for_short: bool = False) -> float:
+    if not report:
+        return 0.0
+    pacing = report.get("pacing") or {}
+    visual = report.get("visual") or {}
+    bonus = 0.0
+    risk = float(pacing.get("earlyRetentionRisk") or 0)
+    bonus -= risk * 0.12
+    hook_pat = pacing.get("hookPattern")
+    if hook_pat == "strong_open":
+        bonus += 10.0 if for_short else 4.0
+    elif hook_pat == "slow_intro":
+        bonus -= 6.0 if for_short else 2.0
+    punch = float(pacing.get("firstFramePunch") or 0)
+    if for_short:
+        bonus += min(8.0, punch / 12.0)
+    crop = float(visual.get("verticalCropSafe") or 50)
+    if for_short:
+        bonus += (crop - 50.0) * 0.15
+    if pacing.get("energyArc") == "falling" and not for_short:
+        bonus -= 4.0
+    if pacing.get("energyArc") == "rising" and not for_short:
+        bonus += 2.0
+    return bonus
+
+
+def _pacing_reasons(report: Optional[dict]) -> list[str]:
+    if not report:
+        return []
+    pacing = report.get("pacing") or {}
+    visual = report.get("visual") or {}
+    reasons: list[str] = []
+    ttfv = pacing.get("timeToFirstValueSec")
+    if ttfv is not None and float(ttfv) > 4.0:
+        reasons.append(f"Strong content starts at {float(ttfv):.0f}s — consider opening there.")
+    risk = pacing.get("earlyRetentionRisk")
+    if risk is not None and float(risk) >= 50.0:
+        reasons.append(f"Early retention risk: {float(risk):.0f}% of first 30s is low-energy.")
+    arc = pacing.get("energyArc")
+    if arc == "falling":
+        reasons.append("Energy fades toward the end — tighten the close.")
+    hook_pat = pacing.get("hookPattern")
+    if hook_pat == "slow_intro":
+        reasons.append("Slow intro — speech or visual punch arrives late.")
+    elif hook_pat == "strong_open":
+        reasons.append("Strong open pattern — good Shorts fit.")
+    punch = pacing.get("firstFramePunch")
+    if punch is not None and float(punch) >= 55:
+        reasons.append(f"First-second punch {float(punch):.0f}/100 — scroll-stop potential.")
+    crop = visual.get("verticalCropSafe")
+    if crop is not None and float(crop) < 45:
+        reasons.append(f"9:16 crop risk ({float(crop):.0f}/100) — face small or off-center.")
+    elif crop is not None and float(crop) >= 70:
+        reasons.append(f"9:16 crop safe ({float(crop):.0f}/100).")
+    for note in pacing.get("notes") or []:
+        if note not in reasons:
+            reasons.append(str(note))
+    return reasons[:4]
+
+
+def _is_near_duplicate(clip_id: str, used_ids: set[str], reports: dict[str, dict]) -> bool:
+    report = reports.get(clip_id)
+    if not report:
+        return False
+    for uid in used_ids:
+        other = reports.get(uid)
+        if other and clip_similarity(report, other) >= 0.72:
+            return True
+    return False
 
 def _best_in_out(clip: dict, report: Optional[dict], *, max_len: Optional[float] = None) -> tuple[float, float, list[str]]:
     """Pick in/out using silence + energy; prefer contentful middle/open."""
@@ -102,8 +175,14 @@ def _sort_day_pool(clips: list[dict], section_hints: list[dict], reports: dict[s
 
     def rank(c: dict) -> tuple:
         sc = _scores(reports.get(c["id"]))
-        # Higher overall/hook first; then mtime as weak prior
-        return (-sc["overall"], -sc["hook"], -sc["interestingness"], c.get("mtimeMs") or 0)
+        pacing_bonus = _pacing_rank_bonus(reports.get(c["id"]), for_short=False)
+        # Higher overall/hook + pacing first; then mtime as weak prior
+        return (
+            -(sc["overall"] + pacing_bonus),
+            -sc["hook"],
+            -sc["interestingness"],
+            c.get("mtimeMs") or 0,
+        )
 
     if not section_hints:
         rest.sort(key=rank)
@@ -117,6 +196,7 @@ def _timeline_from_analyzed(
     reports: dict[str, dict],
     *,
     max_total: Optional[float] = None,
+    jump_cut_middle: bool = True,
 ) -> tuple[list[dict], list[str]]:
     reasons: list[str] = []
     items: list[dict] = []
@@ -125,26 +205,38 @@ def _timeline_from_analyzed(
         report = reports.get(c["id"])
         sc = _scores(report)
         inn, out, trim_reasons = _best_in_out(c, report, max_len=None)
-        use = out - inn
-        if max_total is not None and total + use > max_total and items:
-            remaining = max_total - total
-            if remaining < 3:
-                reasons.append(f"Stopped before {c.get('name')} — hit length target.")
-                break
-            out = inn + remaining
-            use = remaining
-            reasons.append(f"Cut {c.get('name')} to fit target length.")
-        items.append(
-            {
-                "id": f"tc-{uuid.uuid4().hex[:8]}",
-                "clipId": c["id"],
-                "path": c["path"],
-                "inSec": round(inn, 2),
-                "outSec": round(out, 2),
-                "enabled": True,
-            }
+        segments = (
+            middle_jump_segments(inn, out, report)
+            if jump_cut_middle
+            else [(inn, out, [])]
         )
-        total += use
+        clip_use = 0.0
+        for seg_inn, seg_out, seg_reasons in segments:
+            use = seg_out - seg_inn
+            if max_total is not None and total + use > max_total and items:
+                remaining = max_total - total
+                if remaining < 3:
+                    reasons.append(f"Stopped before {c.get('name')} — hit length target.")
+                    break
+                seg_out = seg_inn + remaining
+                use = remaining
+                reasons.append(f"Cut {c.get('name')} to fit target length.")
+            items.append(
+                {
+                    "id": f"tc-{uuid.uuid4().hex[:8]}",
+                    "clipId": c["id"],
+                    "path": c["path"],
+                    "inSec": round(seg_inn, 2),
+                    "outSec": round(seg_out, 2),
+                    "enabled": True,
+                }
+            )
+            total += use
+            clip_use += use
+            if seg_reasons:
+                reasons.extend(seg_reasons[:2])
+            if max_total is not None and total >= max_total:
+                break
         if report:
             reasons.append(
                 f"{c.get('name')}: overall {sc['overall']:.0f}, hook {sc['hook']:.0f}, "
@@ -152,9 +244,12 @@ def _timeline_from_analyzed(
             )
         else:
             reasons.append(
-                f"{c.get('name')}: included by order ({use:.0f}s) — no analysis cache yet."
+                f"{c.get('name')}: included by order ({clip_use:.0f}s) — no analysis cache yet."
             )
         reasons.extend(trim_reasons[:1])
+        reasons.extend(_pacing_reasons(report)[:2])
+        if max_total is not None and total >= max_total:
+            break
     if not any("overall" in r or "included by order" in r for r in reasons) and items:
         reasons.insert(0, f"Sequence uses {len(items)} clip(s) ({total:.0f}s).")
     return items, reasons[:12]
@@ -208,9 +303,11 @@ def _short_window_from_report(
         ]
     if 12 <= window <= 45:
         why.append("Length in Shorts sweet spot.")
+    why.extend(_pacing_reasons(report)[:2])
     score = min(
         98.0,
-        0.4 * sc["hook"] + 0.4 * sc["interestingness"] + 0.2 * sc["overall"],
+        0.4 * sc["hook"] + 0.4 * sc["interestingness"] + 0.2 * sc["overall"]
+        + _pacing_rank_bonus(report, for_short=True),
     )
     if not report:
         score = max(25.0, score - 20)
@@ -282,6 +379,17 @@ def propose_outputs(
             "Run Propose timelines for scores, silence trims, and stronger reasons."
         )
 
+    dup_pairs = find_near_duplicates(reports) if reports else []
+    if dup_pairs:
+        dup_names = []
+        for p in dup_pairs[:3]:
+            a = by_id.get(p["clipA"], {}).get("name") or p["clipA"]
+            b = by_id.get(p["clipB"], {}).get("name") or p["clipB"]
+            dup_names.append(f"{a} ≈ {b} ({int(float(p['similarity']) * 100)}%)")
+        dup_note = "Near-duplicate clips detected: " + "; ".join(dup_names)
+    else:
+        dup_note = None
+
     shorts_only_ids: set[str] = set()
     for bin_ in short_bins:
         if bin_.get("shortsOnly"):
@@ -299,6 +407,8 @@ def propose_outputs(
             reasons.insert(1, "Ordered clips by overall / hook / interestingness scores.")
         if shorts_only_ids:
             reasons.append(f"Excluded {len(shorts_only_ids)} Shorts-only clip(s) from long form.")
+        if dup_note:
+            reasons.append(dup_note)
         # Put strongest-hook clip first if no section hints
         if not section_hints and len(tl) > 1:
             def hook_of(tc: dict) -> float:
@@ -408,7 +518,12 @@ def propose_outputs(
         sc = _scores(report)
         dur = _clip_duration(c, report)
         length_bonus = 12.0 if 12 <= dur <= 60 else (5.0 if dur > 60 else 0.0)
-        return 0.45 * sc["hook"] + 0.45 * sc["interestingness"] + length_bonus
+        return (
+            0.45 * sc["hook"]
+            + 0.45 * sc["interestingness"]
+            + length_bonus
+            + _pacing_rank_bonus(report, for_short=True)
+        )
 
     candidates = sorted(
         [c for c in ordered if c["id"] not in used_for_shorts],
@@ -419,7 +534,10 @@ def propose_outputs(
     for c in candidates:
         if short_index >= shorts_count:
             break
-        inn, out, success, reasons = _short_window_from_report(c, reports.get(c["id"]), short_max)
+        rep = reports.get(c["id"])
+        if _is_near_duplicate(c["id"], used_for_shorts, reports):
+            continue
+        inn, out, success, reasons = _short_window_from_report(c, rep, short_max)
         outputs.append(
             {
                 "id": f"short-{short_index + 1}",

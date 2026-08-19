@@ -10,18 +10,33 @@
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  padding-bottom: 12px;
+  padding: 8px 0 16px;
   border-bottom: 1px solid var(--line);
+  position: relative;
+}
+
+.report-hero::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 140px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--neon), transparent);
+  box-shadow: 0 0 12px var(--glow);
 }
 
 .report-hero h1 {
   margin: 0;
   font-family: var(--font-display);
   font-size: clamp(32px, 4.5vw, 48px);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   line-height: 1;
-  color: var(--ink);
-  text-shadow: 0 0 24px rgba(0, 240, 255, 0.2);
+  background: linear-gradient(180deg, #fff, #9afff5 50%, #00f0ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 20px rgba(0, 240, 255, 0.28));
 }
 
 .report-meta {
@@ -42,15 +57,16 @@
 
 .report-tabs button {
   border: 1px solid var(--line);
-  background: rgba(0, 240, 255, 0.03);
+  background: rgba(0, 240, 255, 0.04);
   color: var(--ink-muted);
-  border-radius: 4px;
-  padding: 8px 16px;
-  font-size: 12px;
-  letter-spacing: 0.14em;
+  border-radius: 2px;
+  padding: 9px 16px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   font-family: var(--font-display);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, background 0.2s ease;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 }
 
 .report-tabs button.active {

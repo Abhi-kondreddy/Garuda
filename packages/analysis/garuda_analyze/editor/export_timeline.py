@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+from ..performance import ffmpeg_thread_args
+from .analyze_clips import load_clip_report
 
 Emit = Optional[Callable[[dict], None]]
 
@@ -37,6 +41,7 @@ def _emit(
     clip_index: int | None = None,
     clip_total: int | None = None,
     clip_name: str | None = None,
+    t0: float | None = None,
 ) -> None:
     if emit:
         evt: dict[str, Any] = {
@@ -55,6 +60,11 @@ def _emit(
             evt["clipTotal"] = clip_total
         if clip_name is not None:
             evt["clipName"] = clip_name
+        if t0 is not None:
+            elapsed = max(0.0, time.time() - t0)
+            evt["elapsedSec"] = round(elapsed, 1)
+            if percent > 3:
+                evt["etaSec"] = round(max(0.0, elapsed * (100.0 / float(percent) - 1.0)))
         emit(evt)
 
 
@@ -70,6 +80,49 @@ def _look_eq(look: str) -> str:
     if look == "contrast":
         return "eq=contrast=1.18:saturation=1.05:brightness=-0.02"
     return "eq=contrast=1.02:saturation=1.0"
+
+
+def _audio_filter() -> str:
+    return "loudnorm=I=-14:TP=-1.5:LRA=11"
+
+
+def _vertical_scale_filter(
+    w: int,
+    h: int,
+    fps: int,
+    look: str,
+    face_center_x: float | None,
+) -> str:
+    eq = _look_eq(look)
+    if face_center_x is not None and 0.05 <= face_center_x <= 0.95:
+        crop_x = f"min(max(iw*{face_center_x:.4f}-{w}/2\\,0)\\,iw-{w})"
+        return (
+            f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+            f"crop={w}:{h}:{crop_x}:0,setsar=1,fps={fps},{eq}"
+        )
+    return (
+        f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},setsar=1,fps={fps},{eq}"
+    )
+
+
+def _clip_face_center_x(project_path: Path | None, clip_id: str | None) -> float | None:
+    if not project_path or not clip_id:
+        return None
+    report = load_clip_report(project_path, clip_id)
+    if not report:
+        return None
+    visual = report.get("visual") or {}
+    raw = visual.get("faceCenterX")
+    if raw is None:
+        return None
+    try:
+        cx = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if cx < 0.05 or cx > 0.95:
+        return None
+    return cx
 
 
 def _dims(aspect: str, resolution: str) -> tuple[int, int]:
@@ -108,17 +161,9 @@ def export_output(
     q = QUALITY_PRESETS.get(quality) or QUALITY_PRESETS["good"]
     w, h = _dims(aspect, resolution)
     fps = int(fps) if fps in (24, 30, 60) else 30
-
-    if aspect == "9:16":
-        scale = (
-            f"scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},setsar=1,fps={fps},{_look_eq(look)}"
-        )
-    else:
-        scale = (
-            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},{_look_eq(look)}"
-        )
+    project_path = Path(project.get("projectPath") or "") if project.get("projectPath") else None
+    audio_af = _audio_filter()
+    export_t0 = time.time()
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,6 +173,7 @@ def export_output(
         f"Exporting {output_id} ({quality}, {w}x{h})…",
         phase="encode",
         phase_percent=5,
+        t0=export_t0,
     )
 
     with tempfile.TemporaryDirectory(prefix="garuda-edit-") as tmp:
@@ -141,6 +187,15 @@ def export_output(
             inn = float(clip.get("inSec", clip.get("in") or 0))
             out_t = clip.get("outSec", clip.get("out"))
             clip_name = src.name
+            clip_id = clip.get("clipId")
+            if aspect == "9:16":
+                face_x = _clip_face_center_x(project_path, str(clip_id) if clip_id else None)
+                scale = _vertical_scale_filter(w, h, fps, look, face_x)
+            else:
+                scale = (
+                    f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                    f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},{_look_eq(look)}"
+                )
             part = tmp_p / f"part_{i:03d}.mp4"
             cmd = [
                 ffmpeg,
@@ -156,12 +211,15 @@ def export_output(
             cmd += [
                 "-vf",
                 scale,
+                *ffmpeg_thread_args(),
                 "-c:v",
                 "libx264",
                 "-preset",
                 q["preset"],
                 "-crf",
                 q["crf"],
+                "-af",
+                audio_af,
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -184,6 +242,7 @@ def export_output(
                 clip_index=i + 1,
                 clip_total=n,
                 clip_name=clip_name,
+                t0=export_t0,
             )
             _run(cmd)
             parts.append(part)
@@ -196,6 +255,7 @@ def export_output(
                 clip_index=i + 1,
                 clip_total=n,
                 clip_name=clip_name,
+                t0=export_t0,
             )
 
         concat_list = tmp_p / "concat.txt"
@@ -204,7 +264,7 @@ def export_output(
             encoding="utf-8",
         )
         merged = tmp_p / "merged.mp4"
-        _emit(emit, 85, "Concatenating…", phase="concat", phase_percent=40)
+        _emit(emit, 85, "Concatenating…", phase="concat", phase_percent=40, t0=export_t0)
         _run(
             [
                 ffmpeg,
@@ -220,7 +280,7 @@ def export_output(
                 str(merged),
             ]
         )
-        _emit(emit, 90, "Concatenated", phase="concat", phase_percent=100)
+        _emit(emit, 90, "Concatenated", phase="concat", phase_percent=100, t0=export_t0)
 
         overlays = (out.get("timeline") or {}).get("overlays") or []
         title_overlay = next((o for o in overlays if o.get("type") == "title" and o.get("text")), None)
@@ -235,7 +295,7 @@ def export_output(
                 f"borderw=3:bordercolor=black@0.6:x=(w-text_w)/2:y={y}:"
                 f"enable='between(t\\,{start}\\,{end})'"
             )
-            _emit(emit, 92, "Burning title…", phase="title", phase_percent=20)
+            _emit(emit, 92, "Burning title…", phase="title", phase_percent=20, t0=export_t0)
             _run(
                 [
                     ffmpeg,
@@ -244,6 +304,7 @@ def export_output(
                     str(merged),
                     "-vf",
                     vf,
+                    *ffmpeg_thread_args(),
                     "-c:v",
                     "libx264",
                     "-preset",
@@ -257,11 +318,11 @@ def export_output(
                     str(out_path),
                 ]
             )
-            _emit(emit, 98, "Title burned", phase="title", phase_percent=100)
+            _emit(emit, 98, "Title burned", phase="title", phase_percent=100, t0=export_t0)
         else:
             merged.replace(out_path)
 
-    _emit(emit, 100, "Export complete", phase="encode", phase_percent=100)
+    _emit(emit, 100, "Export complete", phase="encode", phase_percent=100, t0=export_t0)
     meta = {
         "outputPath": str(out_path),
         "outputId": output_id,

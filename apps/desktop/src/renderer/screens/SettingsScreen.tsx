@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import type { AppInfo, AppSettings, DataStats } from '../../shared/types'
+import type { AppInfo, AppSettings, DataStats, PerformanceMode, ResourceGuardMode, ResourceGuardTrigger } from '../../shared/types'
 import HudPanel from '../components/HudPanel'
+import SystemResourcePanel from '../components/SystemResourcePanel'
 import './SettingsScreen.css'
 
 interface Props {
@@ -67,7 +68,7 @@ export default function SettingsScreen({ settings, onSave, onCleared }: Props) {
     <div className="settings">
       <header className="settings-head">
         <div>
-          <p className="eyebrow">Preferences</p>
+          <p className="eyebrow">Control deck</p>
           <motion.h1
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
@@ -75,7 +76,7 @@ export default function SettingsScreen({ settings, onSave, onCleared }: Props) {
           >
             Settings
           </motion.h1>
-          <p className="muted settings-sub">Local-only controls. Nothing leaves this machine.</p>
+          <p className="muted settings-sub">Local-only systems. Nothing leaves this machine.</p>
         </div>
         {message && (
           <motion.span
@@ -148,6 +149,81 @@ export default function SettingsScreen({ settings, onSave, onCleared }: Props) {
           <p className="hint muted">Used on the next run. Larger = slower + more disk.</p>
         </HudPanel>
       </div>
+
+      <HudPanel title="System load" eyebrow="Hardware" delay={0.1} tone="lime">
+        <label className="settings-field">
+          <span>Processing speed</span>
+          <div className="model-pills">
+            {(
+              [
+                ['eco', 'Eco', 'Slower · light on CPU'],
+                ['balanced', 'Balanced', 'Default'],
+                ['high', 'High', 'Full speed']
+              ] as const
+            ).map(([mode, label, hint]) => (
+              <button
+                key={mode}
+                type="button"
+                className={`model-pill ${settings.performanceMode === mode ? 'active' : ''}`}
+                title={hint}
+                onClick={() => void patch({ performanceMode: mode as PerformanceMode })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </label>
+        <p className="hint muted">
+          Same analysis depth in every mode — only speed and CPU/RAM use change. Applies to the next
+          analyze, propose, or export job (or immediately when you use Force Eco from the guard).
+        </p>
+        <label className="settings-field">
+          <span>When load gets critical</span>
+          <div className="model-pills">
+            {(
+              [
+                ['off', 'Off'],
+                ['warn', 'Warn me'],
+                ['auto_eco', 'Auto Eco']
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                className={`model-pill ${settings.resourceGuard === mode ? 'active' : ''}`}
+                onClick={() => void patch({ resourceGuard: mode as ResourceGuardMode })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </label>
+        <label className="settings-field">
+          <span>Trigger at</span>
+          <div className="model-pills">
+            {(
+              [
+                ['high', 'Heavy'],
+                ['critical', 'Critical only']
+              ] as const
+            ).map(([level, label]) => (
+              <button
+                key={level}
+                type="button"
+                className={`model-pill ${settings.resourceGuardTrigger === level ? 'active' : ''}`}
+                onClick={() => void patch({ resourceGuardTrigger: level as ResourceGuardTrigger })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </label>
+        <p className="hint muted">
+          Resource guard shows actions while Garuda is working: Force Eco (slows the live job), Stop
+          job, or Snooze alerts for 5 minutes.
+        </p>
+        <SystemResourcePanel pollMs={2000} showPerformanceToggle />
+      </HudPanel>
 
       <HudPanel title="Voice models" eyebrow="Enhancement" delay={0.15}>
         <label className="settings-field">

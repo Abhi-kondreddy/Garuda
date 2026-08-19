@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-import time
 from pathlib import Path
 from typing import Callable
 
+from .performance import yield_stage
+from .progress_timing import ProgressTimer
 from .asr import run_asr
 from .audio_features import analyze_audio
 from .frames import analyze_frames
@@ -85,9 +86,13 @@ def run_pipeline(
     sample_every: int | None = None,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    t0 = time.time()
+    timer = ProgressTimer()
 
-    emit(
+    def push(evt: dict) -> None:
+        timer.enrich(evt)
+        emit(evt)
+
+    push(
         {
             "type": "progress",
             "stage": "ingest",
@@ -99,7 +104,8 @@ def run_pipeline(
         }
     )
     meta = _probe(ffprobe, video_path)
-    emit(
+    yield_stage()
+    push(
         {
             "type": "progress",
             "stage": "ingest",
@@ -113,7 +119,7 @@ def run_pipeline(
 
     wav_path = out_dir / "audio.wav"
     if meta["has_audio"]:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "audio_extract",
@@ -125,7 +131,7 @@ def run_pipeline(
             }
         )
         _extract_audio(ffmpeg, video_path, wav_path)
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "audio_extract",
@@ -137,7 +143,7 @@ def run_pipeline(
             }
         )
     else:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "audio_extract",
@@ -149,8 +155,10 @@ def run_pipeline(
             }
         )
 
+    yield_stage()
+
     def visual_progress(pct: float, message: str) -> None:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "visual",
@@ -169,10 +177,11 @@ def run_pipeline(
         on_progress=visual_progress,
         sample_every=sample_every,
     )
+    yield_stage()
 
     transcript = []
     if meta["has_audio"] and wav_path.exists() and not skip_asr:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "asr",
@@ -191,7 +200,7 @@ def run_pipeline(
             phase: str | None = None,
             phase_percent: float | None = None,
         ) -> None:
-            emit(
+            push(
                 {
                     "type": "progress",
                     "stage": "asr",
@@ -204,7 +213,7 @@ def run_pipeline(
             )
 
         transcript = run_asr(wav_path, model_size=whisper_model, on_progress=asr_progress)
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "asr",
@@ -216,7 +225,7 @@ def run_pipeline(
             }
         )
     else:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "asr",
@@ -228,7 +237,7 @@ def run_pipeline(
             }
         )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "audio_features",
@@ -240,7 +249,7 @@ def run_pipeline(
         }
     )
     audio_data = analyze_audio(wav_path if wav_path.exists() else None, meta["duration"])
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "audio_features",
@@ -252,7 +261,7 @@ def run_pipeline(
         }
     )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "scoring",
@@ -270,7 +279,7 @@ def run_pipeline(
         audio_data=audio_data,
         transcript=transcript,
     )
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "scoring",
@@ -282,7 +291,7 @@ def run_pipeline(
         }
     )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "export",
@@ -295,8 +304,8 @@ def run_pipeline(
     )
     report_path = out_dir / "report.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    elapsed = time.time() - t0
-    emit(
+    elapsed = timer.elapsed()
+    push(
         {
             "type": "progress",
             "stage": "export",

@@ -7,6 +7,7 @@ export default function FxLayer() {
     <div className="fx-layer" aria-hidden>
       <div className="fx-aurora fx-aurora-a" />
       <div className="fx-aurora fx-aurora-b" />
+      <div className="fx-hex" />
       <div className="fx-radar">
         <span className="fx-radar-ring r1" />
         <span className="fx-radar-ring r2" />

@@ -11,7 +11,12 @@ import soundfile as sf
 from . import SPEAKER_COLORS
 from .diarize import diarize_librosa, try_pyannote_diarize
 from .project import default_project, save_project, speakers_path, stems_dir, voices_dir
-from .separate import assign_stems_by_embedding, separate_masked, try_speechbrain_separate
+from .separate import (
+    assign_stems_by_embedding,
+    neural_availability,
+    separate_masked,
+    try_speechbrain_separate,
+)
 
 Emit = Optional[Callable[[dict], None]]
 
@@ -64,7 +69,6 @@ def run_voice_analyze(
     clusters = try_pyannote_diarize(
         str(wav_path), hf_token=hf_token, allow_download=allow_download, emit=emit
     )
-    mode_note = "separated"
     if clusters is None:
         if emit:
             emit(
@@ -81,11 +85,12 @@ def run_voice_analyze(
     clusters = clusters[:4]
     out_stems = stems_dir(report_dir)
 
-    # try neural 2-spk separation then assign; else masked
+    # try neural separation (2-spk direct, 3–4 cascade) then assign; else STFT masked
     neural = try_speechbrain_separate(
         y, sr, len(clusters), out_stems, allow_download=allow_download, emit=emit
     )
     warning = None
+    avail = neural_availability()
     if neural and len(neural) >= 2 and len(clusters) >= 2:
         if emit:
             emit(
@@ -128,6 +133,11 @@ def run_voice_analyze(
         residual_path = out_stems / "residual.wav"
         sf.write(str(residual_path), residual, sr)
         mode = "separated"
+        if len(clusters) > 2:
+            warning = (
+                f"Neural cascade separation for {len(clusters)} speakers "
+                "(best-effort). Solo each lane to verify isolation."
+            )
     else:
         stems_meta, residual_path, warning = separate_masked(
             y, sr, clusters, out_stems, emit=emit
@@ -141,14 +151,25 @@ def run_voice_analyze(
                 }
             )
         mode = "masked"
-        mode_note = mode
+        missing = [k for k, v in avail.items() if not v and k in ("torch", "speechbrain")]
+        if missing and allow_download:
+            warning = (
+                (warning or "")
+                + f" Neural stack missing ({', '.join(missing)}). "
+                "Install in packages/analysis/.venv then Re-detect."
+            ).strip()
+        elif not allow_download:
+            warning = (
+                (warning or "")
+                + " Enable “Download voice models” in Settings for neural isolation."
+            ).strip()
 
     manifest = {
         "version": 1,
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "audioPath": str(wav_path),
         "residualPath": str(residual_path),
-        "mode": mode if neural else mode_note,
+        "mode": mode,
         "warning": warning,
         "speakers": speakers,
     }

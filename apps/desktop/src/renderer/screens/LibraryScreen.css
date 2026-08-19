@@ -16,9 +16,13 @@
 .library-head h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(32px, 4vw, 44px);
-  letter-spacing: 0.1em;
-  text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+  font-size: clamp(32px, 4vw, 46px);
+  letter-spacing: 0.12em;
+  background: linear-gradient(180deg, #fff, #9afff5 55%, #00f0ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgba(0, 240, 255, 0.3));
 }
 
 .library-sub {
@@ -41,17 +45,18 @@
 .library-search {
   flex: 1;
   max-width: 420px;
-  padding: 10px 12px;
-  border-radius: 4px;
+  padding: 11px 14px;
+  border-radius: 2px;
   border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 4, 10, 0.55);
   color: var(--ink);
   outline: none;
+  letter-spacing: 0.04em;
 }
 
 .library-search:focus {
   border-color: var(--line-strong);
-  box-shadow: 0 0 14px rgba(0, 240, 255, 0.15);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.2);
 }
 
 .library-empty {

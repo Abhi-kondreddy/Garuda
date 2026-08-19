@@ -33,9 +33,12 @@ import type {
   EditProject,
   EditProjectSummary,
   EditClip,
-  EditExportOptions
+  EditExportOptions,
+  SystemHardwareInfo,
+  SystemResourceSnapshot
 } from '../shared/types'
 import { DEFAULT_SETTINGS, createEmptyEditProject, normalizeEditProject } from '../shared/types'
+import { getSystemHardware, getSystemResources } from './systemStats'
 
 // Must be before app ready — allows <video> to stream local files.
 protocol.registerSchemesAsPrivileged([
@@ -58,12 +61,53 @@ let mainWindow: BrowserWindow | null = null
 let analysisChild: ChildProcessWithoutNullStreams | null = null
 let voicesChild: ChildProcessWithoutNullStreams | null = null
 let editorChild: ChildProcessWithoutNullStreams | null = null
+type VoicesJobKind = 'analyze' | 'preview' | 'solo' | 'export' | 'unknown'
+let voicesJob: { kind: VoicesJobKind; reportDir: string | null; startedAt: number } | null = null
+let lastVoicesProgress: {
+  type: 'progress'
+  stage: string
+  percent: number
+  message: string
+  phase?: string | null
+  phasePercent?: number | null
+} | null = null
+
+function clearVoicesJobState(): void {
+  voicesJob = null
+  lastVoicesProgress = null
+}
+
+function voicesChildAlive(): boolean {
+  if (!voicesChild) return false
+  // exitCode is null while the process is still running
+  if (voicesChild.exitCode != null || voicesChild.killed) {
+    voicesChild = null
+    clearVoicesJobState()
+    return false
+  }
+  return true
+}
+
+function voicesJobKindFromArgs(args: string[]): VoicesJobKind {
+  const cmd = args[0]
+  if (cmd === 'analyze' || cmd === 'preview' || cmd === 'export') return cmd
+  if (cmd === 'solo' || cmd === 'solo-enhance') return 'solo'
+  if (cmd === 'render') return 'export'
+  return 'unknown'
+}
+
+function voicesReportDirFromArgs(args: string[]): string | null {
+  const i = args.indexOf('--report-dir')
+  if (i >= 0 && args[i + 1]) return args[i + 1]
+  return null
+}
 
 function killVoices(): void {
   if (!voicesChild) return
   const child = voicesChild
   ;(child as ChildProcessWithoutNullStreams & { __garudaKill?: boolean }).__garudaKill = true
   voicesChild = null
+  clearVoicesJobState()
   try {
     child.kill('SIGTERM')
     setTimeout(() => {
@@ -101,6 +145,34 @@ function projectsRoot(): string {
   const root = join(app.getPath('userData'), 'garuda', 'projects')
   mkdirSync(root, { recursive: true })
   return root
+}
+
+function isClipReportFresh(report: Record<string, unknown>): boolean {
+  const version = Number(report.version || 0)
+  if (version < 3) return false
+  if (!report.pacing) return false
+  const visual = report.visual as Record<string, unknown> | undefined
+  if (visual?.verticalCropSafe == null) return false
+  return true
+}
+
+function countStaleClips(projectPath: string, clips: EditClip[]): number {
+  const cacheDir = join(dirname(projectPath), 'clip_analysis')
+  let stale = 0
+  for (const clip of clips) {
+    const reportPath = join(cacheDir, clip.id, 'report.json')
+    if (!existsSync(reportPath)) {
+      stale += 1
+      continue
+    }
+    try {
+      const report = JSON.parse(readFileSync(reportPath, 'utf8')) as Record<string, unknown>
+      if (report.sourcePath !== clip.path || !isClipReportFresh(report)) stale += 1
+    } catch {
+      stale += 1
+    }
+  }
+  return stale
 }
 
 function listEditProjects(): EditProjectSummary[] {
@@ -250,6 +322,7 @@ function spawnEditor(args: string[]): void {
         detail
       })
     }
+    maybeClearPerformanceOverride()
   })
 }
 
@@ -361,15 +434,114 @@ function resolveAnalysisDir(): string {
   return join(process.resourcesPath, 'analysis')
 }
 
-function editorPythonEnv(): NodeJS.ProcessEnv {
+function performanceOverridePath(): string {
+  return join(garudaRoot(), 'performance-override.json')
+}
+
+function garudaChildPids(): number[] {
+  return [analysisChild?.pid, voicesChild?.pid, editorChild?.pid].filter(
+    (p): p is number => typeof p === 'number' && p > 0
+  )
+}
+
+function reniceProcessTree(rootPid: number, nice: number): void {
+  const targets = new Set<number>([rootPid])
+  try {
+    const pgrep = spawnSync('pgrep', ['-P', String(rootPid)], { encoding: 'utf8' })
+    for (const line of (pgrep.stdout || '').split('\n')) {
+      const p = Number(line.trim())
+      if (p > 0) targets.add(p)
+    }
+  } catch {
+    /* ignore */
+  }
+  for (const pid of targets) {
+    try {
+      spawnSync('renice', ['-n', String(nice), '-p', String(pid)], { stdio: 'ignore' })
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function applyPerformanceOverrideToProcesses(mode: 'eco' | 'balanced' | 'high', force = false): void {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return
+  const pids = garudaChildPids()
+  if (!pids.length) return
+  const nice = mode === 'eco' ? (force ? 18 : 12) : mode === 'high' ? 0 : 5
+  for (const pid of pids) {
+    reniceProcessTree(pid, nice)
+  }
+}
+
+function readPerformanceOverride(): {
+  active: boolean
+  mode: string | null
+  force: boolean
+  at: string | null
+} {
+  const p = performanceOverridePath()
+  if (!existsSync(p)) {
+    return { active: false, mode: null, force: false, at: null }
+  }
+  try {
+    const data = JSON.parse(readFileSync(p, 'utf8')) as {
+      mode?: string
+      force?: boolean
+      at?: string
+    }
+    return {
+      active: true,
+      mode: data.mode ?? null,
+      force: Boolean(data.force),
+      at: data.at ?? null
+    }
+  } catch {
+    return { active: false, mode: null, force: false, at: null }
+  }
+}
+
+function writePerformanceOverride(mode: 'eco' | 'balanced' | 'high', force = false): void {
+  writeFileSync(
+    performanceOverridePath(),
+    JSON.stringify({ mode, force: force || mode === 'eco', at: new Date().toISOString() }, null, 2),
+    'utf8'
+  )
+  applyPerformanceOverrideToProcesses(mode, force || mode === 'eco')
+}
+
+function clearPerformanceOverride(): void {
+  const p = performanceOverridePath()
+  if (existsSync(p)) rmSync(p)
+}
+
+function maybeClearPerformanceOverride(): void {
+  if (!analysisChild && !editorChild && !voicesChild) {
+    clearPerformanceOverride()
+  }
+}
+
+function pythonJobEnv(): NodeJS.ProcessEnv {
   const analysisDir = resolveAnalysisDir()
   const prev = process.env.PYTHONPATH || ''
   const parts = [analysisDir, prev].filter(Boolean)
+  const settings = readSettings()
   return {
     ...process.env,
     PYTHONUNBUFFERED: '1',
-    PYTHONPATH: parts.join(process.platform === 'win32' ? ';' : ':')
+    PYTHONPATH: parts.join(process.platform === 'win32' ? ';' : ':'),
+    GARUDA_PERFORMANCE_MODE: settings.performanceMode || 'balanced',
+    GARUDA_PERF_OVERRIDE_PATH: performanceOverridePath()
   }
+}
+
+function editorPythonEnv(): NodeJS.ProcessEnv {
+  return pythonJobEnv()
+}
+
+function performanceCliArgs(): string[] {
+  const mode = readSettings().performanceMode || 'balanced'
+  return ['--performance-mode', mode]
 }
 
 function resolveFfmpeg(): { ffmpeg: string; ffprobe: string } {
@@ -497,11 +669,26 @@ function killAnalysis(): void {
   }
 }
 
-function spawnVoices(args: string[], onDone?: (payload: Record<string, unknown>) => void): void {
-  if (voicesChild) {
-    send('voices:error', { message: 'A voices job is already running.' })
+function spawnVoices(
+  args: string[],
+  opts?: {
+    onDone?: (payload: Record<string, unknown>) => void
+    reportDir?: string
+    kind?: VoicesJobKind
+  }
+): void {
+  if (voicesChildAlive()) {
+    send('voices:error', {
+      message: 'A voices job is already running.',
+      detail: lastVoicesProgress?.message
+        ? `In progress: ${lastVoicesProgress.message} (${lastVoicesProgress.percent}%)`
+        : 'Return to Voices to watch progress, or Cancel the running job.'
+    })
+    if (lastVoicesProgress) send('voices:progress', lastVoicesProgress)
     return
   }
+  voicesChild = null
+  clearVoicesJobState()
   const { ffmpeg } = resolveFfmpeg()
   const python = resolvePython()
   const analysisDir = resolveAnalysisDir()
@@ -509,15 +696,25 @@ function spawnVoices(args: string[], onDone?: (payload: Record<string, unknown>)
   if (!fullArgs.includes('--ffmpeg')) {
     fullArgs.push('--ffmpeg', ffmpeg)
   }
+  const onDone = opts?.onDone
   const child = spawn(python, fullArgs, {
     cwd: analysisDir,
-    env: {
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      PYTHONPATH: analysisDir
-    }
+    env: editorPythonEnv()
   })
   voicesChild = child
+  voicesJob = {
+    kind: opts?.kind ?? voicesJobKindFromArgs(args),
+    reportDir: opts?.reportDir ?? voicesReportDirFromArgs(args),
+    startedAt: Date.now()
+  }
+  lastVoicesProgress = {
+    type: 'progress',
+    stage: voicesJob.kind,
+    percent: 1,
+    message: `Starting ${voicesJob.kind}…`
+  }
+  send('voices:progress', lastVoicesProgress)
+
   let buffer = ''
   let terminalSent = false
   child.stdout.on('data', (chunk: Buffer) => {
@@ -529,14 +726,26 @@ function spawnVoices(args: string[], onDone?: (payload: Record<string, unknown>)
       if (!trimmed) continue
       try {
         const evt = JSON.parse(trimmed) as { type: string; [k: string]: unknown }
-        if (evt.type === 'progress') send('voices:progress', evt)
-        else if (evt.type === 'error') {
+        if (evt.type === 'progress') {
+          lastVoicesProgress = {
+            type: 'progress',
+            stage: String(evt.stage ?? voicesJob?.kind ?? 'analyze'),
+            percent: Number(evt.percent ?? 0),
+            message: String(evt.message ?? 'Working…'),
+            phase: (evt.phase as string | null | undefined) ?? null,
+            phasePercent:
+              typeof evt.phasePercent === 'number' ? (evt.phasePercent as number) : null
+          }
+          send('voices:progress', lastVoicesProgress)
+        } else if (evt.type === 'error') {
           terminalSent = true
           voicesChild = null
+          clearVoicesJobState()
           send('voices:error', evt)
         } else if (evt.type === 'done') {
           terminalSent = true
           voicesChild = null
+          clearVoicesJobState()
           send('voices:done', evt)
           onDone?.(evt)
         }
@@ -550,6 +759,7 @@ function spawnVoices(args: string[], onDone?: (payload: Record<string, unknown>)
   })
   child.on('error', (err) => {
     voicesChild = null
+    clearVoicesJobState()
     if (!terminalSent) {
       terminalSent = true
       send('voices:error', { message: 'Failed to start voices engine.', detail: err.message })
@@ -559,14 +769,20 @@ function spawnVoices(args: string[], onDone?: (payload: Record<string, unknown>)
     const intentional = Boolean(
       (child as ChildProcessWithoutNullStreams & { __garudaKill?: boolean }).__garudaKill
     )
-    if (voicesChild === child) voicesChild = null
+    if (voicesChild === child) {
+      voicesChild = null
+      clearVoicesJobState()
+    }
     if (intentional || terminalSent) return
     if (code !== 0) {
       send('voices:error', {
         message: 'Voices job failed.',
         detail: `Engine exited with code ${code}`
       })
+    } else {
+      send('voices:done', { ok: true })
     }
+    maybeClearPerformanceOverride()
   })
 }
 
@@ -625,16 +841,13 @@ function startAnalysis(videoPath: string): void {
     '--ffprobe',
     ffprobe,
     '--whisper-model',
-    settings.whisperModel
+    settings.whisperModel,
+    ...performanceCliArgs()
   ]
 
   const child = spawn(python, args, {
     cwd: analysisDir,
-    env: {
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      PYTHONPATH: analysisDir
-    }
+    env: pythonJobEnv()
   })
   analysisChild = child
 
@@ -684,6 +897,7 @@ function startAnalysis(videoPath: string): void {
         detail: `Engine exited with code ${code}`
       })
     }
+    maybeClearPerformanceOverride()
   })
 }
 
@@ -871,6 +1085,15 @@ app.whenReady().then(() => {
     if (!['tiny', 'base', 'small'].includes(next.whisperModel)) {
       next.whisperModel = DEFAULT_SETTINGS.whisperModel
     }
+    if (!['eco', 'balanced', 'high'].includes(next.performanceMode)) {
+      next.performanceMode = DEFAULT_SETTINGS.performanceMode
+    }
+    if (!['off', 'warn', 'auto_eco'].includes(next.resourceGuard)) {
+      next.resourceGuard = DEFAULT_SETTINGS.resourceGuard
+    }
+    if (!['high', 'critical'].includes(next.resourceGuardTrigger)) {
+      next.resourceGuardTrigger = DEFAULT_SETTINGS.resourceGuardTrigger
+    }
     next.recentLimit = Math.min(24, Math.max(3, Number(next.recentLimit) || 8))
     return writeSettings(next)
   })
@@ -888,6 +1111,54 @@ app.whenReady().then(() => {
     name: app.getName(),
     platform: process.platform
   }))
+
+  ipcMain.handle('system:hardware', (): SystemHardwareInfo => getSystemHardware())
+
+  ipcMain.handle('system:resources', async (): Promise<SystemResourceSnapshot> => {
+    const pids = [analysisChild?.pid, voicesChild?.pid, editorChild?.pid].filter(
+      (p): p is number => typeof p === 'number' && p > 0
+    )
+    const snap = await getSystemResources(pids)
+    return { ...snap, garudaJobActive: pids.length > 0 }
+  })
+
+  ipcMain.handle('system:setPerformanceOverride', (_e, mode: string | null, force = false) => {
+    if (!mode) {
+      clearPerformanceOverride()
+      return { mode: null, applied: false, jobActive: garudaChildPids().length > 0 }
+    }
+    if (!['eco', 'balanced', 'high'].includes(mode)) {
+      return { mode: null, applied: false, jobActive: garudaChildPids().length > 0 }
+    }
+    const jobActive = garudaChildPids().length > 0
+    writePerformanceOverride(mode as 'eco' | 'balanced' | 'high', Boolean(force))
+    return { mode, applied: true, jobActive, force: Boolean(force) }
+  })
+
+  ipcMain.handle('system:getPerformanceOverride', () => ({
+    ...readPerformanceOverride(),
+    jobActive: garudaChildPids().length > 0,
+    path: performanceOverridePath()
+  }))
+
+  ipcMain.handle('system:clearPerformanceOverride', () => {
+    clearPerformanceOverride()
+    return true
+  })
+
+  ipcMain.handle('system:cancelAllJobs', () => {
+    const hadAnalysis = Boolean(analysisChild)
+    const hadEditor = Boolean(editorChild)
+    const hadVoices = Boolean(voicesChild)
+    killAnalysis()
+    killEditor()
+    killVoices()
+    clearPerformanceOverride()
+    if (hadAnalysis) send('analysis:cancelled', {})
+    if (hadEditor) send('editor:cancelled', {})
+    if (hadVoices) send('voices:cancelled', {})
+    return { analysis: hadAnalysis, editor: hadEditor, voices: hadVoices }
+  })
 
   ipcMain.handle('voices:getManifest', (_e, reportPath: string) => {
     const dir = dirname(reportPath)
@@ -937,6 +1208,17 @@ app.whenReady().then(() => {
     return jobs[0]?.outputPath ?? null
   })
 
+  ipcMain.handle('voices:jobStatus', () => {
+    const running = voicesChildAlive()
+    return {
+      running,
+      kind: running ? (voicesJob?.kind ?? null) : null,
+      reportDir: running ? (voicesJob?.reportDir ?? null) : null,
+      startedAt: running ? (voicesJob?.startedAt ?? null) : null,
+      progress: running ? lastVoicesProgress : null
+    }
+  })
+
   ipcMain.handle('voices:analyze', (_e, reportPath: string) => {
     const settings = readSettings()
     const dir = dirname(reportPath)
@@ -947,14 +1229,17 @@ app.whenReady().then(() => {
     if (settings.downloadVoiceModels !== false) {
       args.push('--allow-download')
     }
-    spawnVoices(args)
+    spawnVoices(args, { kind: 'analyze', reportDir: dir })
     return true
   })
 
   ipcMain.handle('voices:buildPreview', (_e, reportPath: string) => {
     const dir = dirname(reportPath)
     const projectFile = join(dir, 'voices', 'project.json')
-    spawnVoices(['preview', '--report-dir', dir, '--project', projectFile])
+    spawnVoices(['preview', '--report-dir', dir, '--project', projectFile], {
+      kind: 'preview',
+      reportDir: dir
+    })
     return true
   })
 
@@ -962,17 +1247,20 @@ app.whenReady().then(() => {
     const dir = dirname(reportPath)
     const projectFile = join(dir, 'voices', 'project.json')
     const out = join(dir, 'voices', 'stems', '.cache', `solo_${speakerId}.wav`)
-    spawnVoices([
-      'solo-enhance',
-      '--report-dir',
-      dir,
-      '--speaker-id',
-      speakerId,
-      '--project',
-      projectFile,
-      '--out',
-      out
-    ])
+    spawnVoices(
+      [
+        'solo-enhance',
+        '--report-dir',
+        dir,
+        '--speaker-id',
+        speakerId,
+        '--project',
+        projectFile,
+        '--out',
+        out
+      ],
+      { kind: 'solo', reportDir: dir }
+    )
     return out
   })
 
@@ -1001,14 +1289,15 @@ app.whenReady().then(() => {
     }
     const jobPath = join(exportDir, 'job.json')
     writeFileSync(jobPath, JSON.stringify(job, null, 2), 'utf8')
-    spawnVoices(['render', '--job', jobPath])
+    spawnVoices(['render', '--job', jobPath], { kind: 'export', reportDir: dir })
     return job
   })
 
   ipcMain.handle('voices:cancel', () => {
+    const was = Boolean(voicesChild)
     killVoices()
-    send('voices:cancelled', {})
-    return true
+    if (was) send('voices:cancelled', {})
+    return was
   })
 
   ipcMain.handle('voices:revealExport', (_e, outputPath: string) => {
@@ -1030,7 +1319,11 @@ app.whenReady().then(() => {
 
   ipcMain.handle('editor:load', (_e, projectPath: string) => {
     if (!existsSync(projectPath)) throw new Error('Project not found')
-    return normalizeEditProject(JSON.parse(readFileSync(projectPath, 'utf8')) as EditProject)
+    const project = normalizeEditProject(JSON.parse(readFileSync(projectPath, 'utf8')) as EditProject)
+    return {
+      ...project,
+      staleClipCount: countStaleClips(projectPath, project.clips)
+    }
   })
 
   ipcMain.handle('editor:save', (_e, project: EditProject) => {
@@ -1078,7 +1371,9 @@ app.whenReady().then(() => {
     })
   })
 
-  ipcMain.handle('editor:propose', (_e, projectPath: string, opts?: { quick?: boolean }) => {
+  ipcMain.handle(
+    'editor:propose',
+    (_e, projectPath: string, opts?: { quick?: boolean; withAsr?: boolean; forceReanalyze?: boolean }) => {
     if (!projectPath || !existsSync(projectPath)) {
       throw new Error('Project file not found. Save the project and try again.')
     }
@@ -1094,10 +1389,15 @@ app.whenReady().then(() => {
       ffprobe,
       '--whisper-model',
       settings.whisperModel || 'tiny',
-      // Visual+audio read by default; ASR is heavy and often crashes first-run without models.
-      '--skip-asr'
+      ...performanceCliArgs()
     ]
+    if (opts?.withAsr) {
+      args.push('--with-asr')
+    } else {
+      args.push('--skip-asr')
+    }
     if (opts?.quick) args.push('--quick')
+    if (opts?.forceReanalyze) args.push('--force-reanalyze')
     send('editor:progress', {
       type: 'progress',
       stage: 'propose',
@@ -1134,7 +1434,8 @@ app.whenReady().then(() => {
         '--burn-title',
         burnTitle ? '1' : '0',
         '--fps',
-        String(fps)
+        String(fps),
+        ...performanceCliArgs()
       ])
       return out
     }

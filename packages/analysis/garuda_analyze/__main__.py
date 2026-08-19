@@ -6,6 +6,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from .performance import configure_performance
 from .pipeline import run_pipeline
 
 
@@ -17,7 +18,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ffprobe", default="ffprobe")
     parser.add_argument("--whisper-model", default="base", help="faster-whisper model size")
     parser.add_argument("--skip-asr", action="store_true", help="Skip speech recognition")
+    parser.add_argument(
+        "--performance-mode",
+        default=None,
+        choices=["eco", "balanced", "high"],
+        help="Eco = slower & lighter on CPU; high = full speed. Same analysis depth.",
+    )
     args = parser.parse_args(argv)
+    configure_performance(args.performance_mode)
 
     def emit(obj: dict) -> None:
         sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
