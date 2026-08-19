@@ -13,6 +13,7 @@ import type {
 import { DEFAULT_EDIT_EXPORT_OPTIONS, normalizeEditProject } from '../../shared/types'
 import EditorProgressPanel from '../components/EditorProgressPanel'
 import '../components/EditorProgressPanel.css'
+import SystemResourcePanel from '../components/SystemResourcePanel'
 import HudPanel from '../components/HudPanel'
 import TimelinePreview from '../components/TimelinePreview'
 import './EditorScreen.css'
@@ -96,6 +97,8 @@ function EditorScreenInner() {
   const [binTopic, setBinTopic] = useState('')
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null)
   const [exportOpts, setExportOpts] = useState<EditExportOptions>({ ...DEFAULT_EDIT_EXPORT_OPTIONS })
+  const [proposeWithAsr, setProposeWithAsr] = useState(false)
+  const [forceReanalyze, setForceReanalyze] = useState(false)
   const projectPathRef = useRef<string | null>(null)
 
   const applyProject = useCallback((raw: EditProject) => {
@@ -293,7 +296,7 @@ function EditorScreenInner() {
     if (!project) return
     setError(null)
     setBusy(true)
-    setJobLabel(quick ? 'Quick propose' : 'Deep propose')
+    setJobLabel(quick ? 'Quick propose' : proposeWithAsr ? 'Deep propose + speech' : 'Deep propose')
     setProgressMsg(quick ? 'Quick propose…' : 'Reading clips (visual + audio)…')
     setProgressPct(2)
     setStagePercents({ propose: 5 })
@@ -307,7 +310,11 @@ function EditorScreenInner() {
     })
     try {
       const saved = await persist(project)
-      await window.garuda.editorPropose(saved.projectPath, { quick })
+      await window.garuda.editorPropose(saved.projectPath, {
+        quick,
+        withAsr: !quick && proposeWithAsr,
+        forceReanalyze: !quick && forceReanalyze
+      })
     } catch (e) {
       console.error('[editor propose]', e)
       setBusy(false)
@@ -435,10 +442,34 @@ function EditorScreenInner() {
           <h1>{project.name}</h1>
           <p className="muted mono">
             {project.clips.length} clips · {project.status}
+            {project.staleClipCount != null && project.staleClipCount > 0
+              ? ` · ${project.staleClipCount} stale`
+              : ''}
             {busy ? ` · ${jobLabel} · ${Math.round(progressPct)}%` : ''}
           </p>
         </div>
         <div className="editor-head-actions">
+          <label className="editor-asr-toggle" title="Run Whisper during deep propose (slower, richer speech metrics)">
+            <input
+              type="checkbox"
+              checked={proposeWithAsr}
+              disabled={busy}
+              onChange={(e) => setProposeWithAsr(e.target.checked)}
+            />
+            <span className="mono">+ Speech (ASR)</span>
+          </label>
+          <label
+            className="editor-asr-toggle"
+            title="Re-run analysis on all clips (ignores cache) — use when metrics look outdated"
+          >
+            <input
+              type="checkbox"
+              checked={forceReanalyze}
+              disabled={busy}
+              onChange={(e) => setForceReanalyze(e.target.checked)}
+            />
+            <span className="mono">Re-analyze all</span>
+          </label>
           <button
             className="ghost-btn"
             type="button"
@@ -462,13 +493,16 @@ function EditorScreenInner() {
       {error && <p className="editor-error">{error}</p>}
 
       {busy ? (
-        <EditorProgressPanel
-          progress={editorProgress}
-          overall={progressPct}
-          stagePercents={stagePercents}
-          jobLabel={jobLabel}
-          onCancel={() => void window.garuda.editorCancel()}
-        />
+        <>
+          <EditorProgressPanel
+            progress={editorProgress}
+            overall={progressPct}
+            stagePercents={stagePercents}
+            jobLabel={jobLabel}
+            onCancel={() => void window.garuda.editorCancel()}
+          />
+          <SystemResourcePanel compact pollMs={2000} />
+        </>
       ) : null}
 
       <div className="editor-grid">

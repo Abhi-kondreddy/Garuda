@@ -52,32 +52,48 @@ export default function HomeScreen({
         onDrop={onDrop}
       >
         <div className="hero-atmosphere" aria-hidden />
+        <div className="hero-horizon" aria-hidden />
         <div className="hero-grid" aria-hidden />
         <div className="hero-orbits" aria-hidden>
           <div className="hero-orbit o1" />
           <div className="hero-orbit o2" />
           <div className="hero-orbit o3" />
+          <div className="hero-core" />
         </div>
         <div className="hero-hud" aria-hidden>
           <span className="hud-corner tl" />
           <span className="hud-corner tr" />
           <span className="hud-corner bl" />
           <span className="hud-corner br" />
-          <span className="hud-chip mono">LOCAL · SIGNAL LIVE</span>
+          <span className="hud-chip mono">UPLINK · LOCAL · SECURE</span>
+          <span className="hud-chip-right mono">FPS · FRAME · FACE · VOICE</span>
         </div>
+
+        <motion.div
+          className="hero-telemetry"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
+          aria-hidden
+        >
+          <span className="mono">NODE 01</span>
+          <span className="mono">LATENCY &lt;1ms</span>
+          <span className="mono">AIRGAP READY</span>
+          <span className="mono pulse">REC · IDLE</span>
+        </motion.div>
 
         <motion.svg
           className="hero-mark"
           viewBox="0 0 220 140"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ opacity: 0, scale: 0.88, rotate: -4 }}
+          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+          transition={{ duration: 0.85, ease: [0.22, 1, 0.36, 1] }}
         >
           <defs>
             <linearGradient id="neonWing" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#7dfff6" />
+              <stop offset="0%" stopColor="#9afff5" />
               <stop offset="45%" stopColor="#00f0ff" />
-              <stop offset="100%" stopColor="#b8ff2e" />
+              <stop offset="100%" stopColor="#c8ff3d" />
             </linearGradient>
             <filter id="neonGlow" x="-40%" y="-40%" width="180%" height="180%">
               <feGaussianBlur stdDeviation="3.5" result="blur" />
@@ -97,53 +113,64 @@ export default function HomeScreen({
           <path
             d="M110 22 L128 52 L182 44 L144 72 L162 116 L110 88 L58 116 L76 72 L38 44 L92 52 Z"
             fill="url(#neonWing)"
-            opacity="0.18"
+            opacity="0.2"
           />
           <path
             d="M110 38 L118 56 L140 54 L122 66 L128 88 L110 74 L92 88 L98 66 L80 54 L102 56 Z"
-            fill="#010104"
+            fill="#000208"
             stroke="#00f0ff"
             strokeWidth="1.2"
             opacity="0.95"
           />
-          <circle cx="110" cy="62" r="3" fill="#b8ff2e">
-            <animate attributeName="opacity" values="0.4;1;0.4" dur="2.2s" repeatCount="indefinite" />
+          <circle cx="110" cy="62" r="3.2" fill="#c8ff3d">
+            <animate attributeName="opacity" values="0.35;1;0.35" dur="2s" repeatCount="indefinite" />
           </circle>
         </motion.svg>
 
         <motion.h1
           className="brand"
-          initial={{ opacity: 0, y: 18 }}
+          initial={{ opacity: 0, y: 22 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.12, duration: 0.55 }}
+          transition={{ delay: 0.14, duration: 0.6 }}
         >
           GARUDA
         </motion.h1>
         <motion.p
+          className="brand-sub mono"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.28, duration: 0.45 }}
+        >
+          VIDEO INTELLIGENCE ENGINE
+        </motion.p>
+        <motion.p
           className="tagline"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.22, duration: 0.5 }}
+          transition={{ delay: 0.26, duration: 0.5 }}
         >
-          End-to-end local video intelligence for creators who refuse to guess.
+          End-to-end local analysis for creators who refuse to guess.
         </motion.p>
         <motion.div
           className="cta-row"
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.32, duration: 0.45 }}
+          transition={{ delay: 0.36, duration: 0.45 }}
         >
           <button className="primary-btn cta" type="button" onClick={onPick}>
-            Analyze video
+            Initialize analysis
           </button>
-          <span className="drop-hint muted">or drop a file anywhere on this screen</span>
+          <span className="drop-hint muted">Drop footage onto this deck to begin</span>
         </motion.div>
       </section>
 
       {pastReports.length > 0 && (
         <section className="past">
           <div className="past-head">
-            <h2>Recent reports</h2>
+            <div>
+              <p className="eyebrow">Archives</p>
+              <h2>Recent signal logs</h2>
+            </div>
             <div className="past-head-actions">
               <button className="ghost-btn" type="button" onClick={onRefreshPast}>
                 Refresh
@@ -154,15 +181,24 @@ export default function HomeScreen({
             </div>
           </div>
           <ul className="past-list">
-            {pastReports.slice(0, recentLimit).map((item) => (
-              <li key={item.id}>
+            {pastReports.slice(0, recentLimit).map((item, i) => (
+              <motion.li
+                key={item.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 * i, duration: 0.35 }}
+              >
                 <button type="button" className="past-item" onClick={() => onOpenPast(item)}>
-                  <span className="past-name">{item.sourceName}</span>
-                  <span className="past-meta mono">
-                    {new Date(item.createdAt).toLocaleString()} · {Math.round(item.overall)}
+                  <span className="past-index mono">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="past-body">
+                    <span className="past-name">{item.sourceName}</span>
+                    <span className="past-meta mono">
+                      {new Date(item.createdAt).toLocaleString()} · SCORE {Math.round(item.overall)}
+                    </span>
                   </span>
+                  <span className="past-chevron" aria-hidden />
                 </button>
-              </li>
+              </motion.li>
             ))}
           </ul>
         </section>

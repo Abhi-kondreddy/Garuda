@@ -8,6 +8,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from ..performance import configure_performance
+
 
 def _emit(obj: dict) -> None:
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
@@ -41,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     p_solo.add_argument("--ffmpeg", default="ffmpeg")
 
     args = parser.parse_args(argv)
+    configure_performance()
 
     try:
         if args.cmd == "analyze":

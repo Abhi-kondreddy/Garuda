@@ -8,6 +8,8 @@ import ReportScreen from './screens/ReportScreen'
 import LibraryScreen from './screens/LibraryScreen'
 import SettingsScreen from './screens/SettingsScreen'
 import EditorScreen from './screens/EditorScreen'
+import TitlebarResourceTicker from './components/TitlebarResourceTicker'
+import ResourceGuard from './components/ResourceGuard'
 import type {
   AnalysisReport,
   AnalysisStage,
@@ -212,7 +214,8 @@ export default function App() {
         <div className="titlebar-mark">
           <span className="titlebar-pip" />
           GARUDA
-          <span className="titlebar-ticker mono">SIGNAL · LOCAL</span>
+          <span className="titlebar-ticker mono">UPLINK · LOCAL · SECURE</span>
+          <TitlebarResourceTicker />
         </div>
         <div className="titlebar-actions">
           {analyzing && (
@@ -226,6 +229,8 @@ export default function App() {
           )}
         </div>
       </header>
+
+      <ResourceGuard settings={settings} onOpenSettings={() => setRoute('settings')} />
 
       <div className="app-body">
         <AppNav
@@ -266,7 +271,7 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.35 }}
-                style={{ height: '100%' }}
+                style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
               >
                 <AnalyzingScreen
                   videoPath={videoPath}

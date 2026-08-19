@@ -2,60 +2,95 @@
 
 Local-first desktop video analyzer for YouTube creators. Drop in a video, watch live analysis progress, and get a rich report covering hook strength, interestingness, color evenness, visual quality, and Telugu/English audio — plus SRT/VTT captions, YouTube chapters, a keyword/SEO pack, face-aware thumbnail candidates, a retention-risk curve, framing/b-roll analysis, and true LUFS loudness. The **Editor** builds a day project (clips → long + Shorts proposals → preview → export).
 
-See **[FEATURES.md](FEATURES.md)** for what’s shipped vs deferred.
+See **[FEATURES.md](FEATURES.md)** for what’s shipped vs deferred, including the **future enhancements** roadmap.  
+See **[INSTALL.md](INSTALL.md)** for the complete, detailed dependency list (every module, optional groups, models, env vars, per-OS notes).  
+See **[SETUP.md](SETUP.md)** for the fresh-machine checklist and **optimum performance** installs (core → neural Voices → pyannote), if present.
 
 ## Stack
 
 - **Desktop:** Electron + Vite + React + TypeScript
-- **Engine:** Python (OpenCV, librosa, faster-whisper)
+- **Engine:** Python (OpenCV, librosa, faster-whisper; optional torch/speechbrain for voices)
 - **Decode:** Bundled FFmpeg under `tools/ffmpeg/`
 
-## Setup
+## Quick setup
 
-> Full, detailed dependency list (system prerequisites, every npm/Python module,
-> optional groups, models, env vars, per-OS notes): see **[INSTALL.md](INSTALL.md)**.
+### 1. Prerequisites
 
-### 1. Node
+| Need | Notes |
+|---|---|
+| **Node.js 20+** | `node -v` / `npm -v` |
+| **Python 3.9+** | `python3 -V` (3.9–3.12 recommended) |
+| **Disk** | ~1 GB core; **+2–4 GB** if installing neural voices / ML pack |
+| **RAM** | 8 GB works (use Eco); 16 GB+ more comfortable with neural voices |
+
+FFmpeg/ffprobe are **bundled** in `tools/ffmpeg/` — no system install required for normal use.
+
+### 2. Node packages
 
 ```bash
-export PATH="$HOME/.local/node/bin:$PATH"   # if using the local Node install
-cd /path/to/Garuda
+cd Garuda          # repo root
 npm install
 ```
 
-### 2. Python analysis engine
+### 3. Python analysis engine (required)
 
 ```bash
 cd packages/analysis
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate                    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt              # core (runs a full report)
 pip install -r requirements-accuracy.txt     # optional: PySceneDetect + LUFS
 pip install -r requirements-ml.txt           # optional: ML params (aesthetics/emotion/NER)
-pip install -r requirements-voices.txt       # optional: Voices module (heavy)
-pip install jsonschema scikit-learn          # report validation + calibration engine
+pip install jsonschema scikit-learn          # optional: report validation + calibration
 ```
 
-Every report now carries a `metrics` block (each parameter with unit, range,
-method, confidence, and evidence timestamps), plus `provenance`, `diagnostics`
-(preflight QC + capabilities), `dropRiskTimeline`, `topDrivers`, and — once a
-calibration model is trained — `predictions` with confidence intervals. See the
+Every report carries a `metrics` block (each parameter with unit, range, method,
+confidence, and evidence timestamps), plus `provenance`, `diagnostics` (preflight
+QC + capabilities), `dropRiskTimeline`, `topDrivers`, and — once a calibration
+model is trained — `predictions` with confidence intervals. See the
 [calibration data guide](packages/analysis/garuda_analyze/calibration/data/README.md).
 
-> First ASR run downloads a Whisper model (`base` by default). The core engine
-> degrades gracefully when the optional accuracy deps aren't installed. Set
-> `GARUDA_WHISPER_DEVICE=cuda` (or `metal`) to use a GPU build of faster-whisper;
+> First ASR run downloads a Whisper model (`tiny`/`base` from Settings). The core
+> engine degrades gracefully when optional deps aren't installed. Set
+> `GARUDA_WHISPER_DEVICE=cuda` (or `metal`) for a GPU build of faster-whisper;
 > drop `face_detection_yunet_2023mar.onnx` into `packages/analysis/models/` to
 > enable the YuNet face detector (else it falls back to Haar).
 
-### 3. Run the app
+### 4. Neural voice isolation (recommended for Voices)
+
+Without this, Voices uses **STFT MASKED** isolation. With it, **Re-detect** can use SepFormer (neural).
 
 ```bash
-cd /path/to/Garuda
+cd packages/analysis
+source .venv/bin/activate
+pip install -r requirements-voices.txt
+```
+
+Then in the app:
+
+1. **Settings → Download voice models** = on
+2. (Optimum) HuggingFace token + accept pyannote model terms on HF
+3. Report → **Voices → Re-detect** (first run downloads model weights)
+
+### 5. Run the app
+
+```bash
+cd Garuda          # repo root
 npm run dev
 ```
 
-### 4. Analyze from CLI (optional)
+Electron uses `packages/analysis/.venv/bin/python` when that venv exists.
+
+### Verify installs
+
+```bash
+cd packages/analysis
+source .venv/bin/activate
+python -c "import cv2, librosa, faster_whisper; print('core ok')"
+python -c "import torch, speechbrain; print('voices ok', torch.__version__)"
+```
+
+## CLI analyze (optional)
 
 ```bash
 cd packages/analysis
@@ -67,7 +102,7 @@ python -m garuda_analyze \
   --ffprobe ../../tools/ffmpeg/ffprobe
 ```
 
-Progress is streamed as newline-delimited JSON (`progress` / `error` / `done`).
+Progress is newline-delimited JSON (`progress` / `error` / `done`).
 
 ## Tests
 
@@ -79,6 +114,8 @@ python tests/test_engine.py        # degenerate inputs, JSON-safety, SRT, perf
 python tests/test_foolproof.py     # golden report + fuzz (valid report or clean error)
 python tests/test_metrics.py       # metric-contract shape + schema validation
 python tests/test_calibration.py   # calibration train/apply round-trip
+python tests/test_pacing_metrics.py
+python tests/test_voice_separate.py
 python tests/test_editor_propose.py
 ```
 
@@ -89,13 +126,19 @@ cd apps/desktop
 npm run dist
 ```
 
-`electron-builder` packs the renderer/main bundles and copies:
+`electron-builder` packs renderer/main and copies:
 
 - `packages/analysis` → `resources/analysis`
 - `tools/ffmpeg` → `resources/ffmpeg`
 
-On end-user machines, create/activate a venv inside the packaged analysis folder (or ship a frozen binary in a later release). For local development, Electron prefers `packages/analysis/.venv/bin/python`.
+On end-user machines, create/activate a venv inside the packaged analysis folder (or ship a frozen binary later). Dev prefers `packages/analysis/.venv/bin/python`.
 
-## Reports
+## Data locations
 
-Saved under Electron `userData/garuda/reports/<id>/report.json` and reopenable from the home screen.
+| What | Where |
+|---|---|
+| Reports | Electron `userData/garuda/reports/` |
+| Edit projects | Electron `userData/garuda/projects/` |
+| Settings | Electron `userData/garuda/` |
+
+These do **not** travel with the git repo — copy `userData` if you need the same reports on another machine.

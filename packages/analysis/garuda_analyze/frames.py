@@ -9,6 +9,7 @@ import numpy as np
 
 from . import config
 from .detectors import FaceDetector
+from .performance import yield_frame_tick
 
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
@@ -68,6 +69,9 @@ def analyze_frames(
     face_hits = 0
     face_checks = 0
     face_boxes: list[dict] = []
+    face_area_ratios: list[float] = []
+    face_center_offsets: list[float] = []
+    face_center_xs: list[float] = []
     # Dense face sampling ~3 fps equivalent
     face_stride = max(1, int(round(fps / 3.0))) if fps > 0 else 10
 
@@ -151,17 +155,23 @@ def analyze_frames(
                         # Largest face -> normalized center + size (0..1) for
                         # thumbnail crops / vertical reframing downstream.
                         fx, fy, fw, fh = max(faces, key=lambda b: b[2] * b[3])
+                        cxn = (fx + fw / 2.0) / 320.0
                         face_boxes.append(
                             {
                                 "t": round(t, 2),
-                                "cx": round((fx + fw / 2.0) / 320.0, 4),
+                                "cx": round(cxn, 4),
                                 "cy": round((fy + fh / 2.0) / 180.0, 4),
                                 "w": round(fw / 320.0, 4),
                                 "h": round(fh / 180.0, 4),
                             }
                         )
+                        # Framing / vertical-crop aggregates (from resource-monitoring branch).
+                        face_area_ratios.append((float(fw) * float(fh)) / (320.0 * 180.0))
+                        face_center_offsets.append(abs(cxn - 0.5))
+                        face_center_xs.append(cxn)
 
             frame_idx += 1
+            yield_frame_tick()
             # Throttle progress (~2% steps) so Electron IPC stays responsive
             step = max(1, total // 50) if total > 0 else 30
             if total > 0 and frame_idx % step == 0:
@@ -187,6 +197,10 @@ def analyze_frames(
             "scene_cuts": [],
             "palette": [],
             "on_cam_presence": 0.0,
+            "face_avg_area_ratio": 0.0,
+            "face_center_offset": 0.5,
+            "face_center_x": 0.5,
+            "vertical_crop_safe": 50.0,
             "hue_means": [],
             "sat_means": [],
             "sharpness": [],
@@ -229,6 +243,24 @@ def analyze_frames(
         for rgb, count in palette_counter.most_common(6)
     ]
 
+    on_cam = face_hits / max(face_checks, 1)
+    face_avg_area = float(np.mean(face_area_ratios)) if face_area_ratios else 0.0
+    face_center = float(np.mean(face_center_offsets)) if face_center_offsets else 0.5
+    face_center_x = float(np.mean(face_center_xs)) if face_center_xs else 0.5
+    # 9:16 crop safety: centered face + reasonable size
+    vertical_crop_safe = float(
+        max(
+            0.0,
+            min(
+                100.0,
+                55.0
+                + 30.0 * (1.0 - min(1.0, face_center * 2.0))
+                + 15.0 * min(1.0, face_avg_area * 8.0)
+                + 10.0 * on_cam,
+            ),
+        )
+    )
+
     return {
         "frame_count": frame_idx,
         "brightness": brightness,
@@ -237,7 +269,11 @@ def analyze_frames(
         "times": times,
         "scene_cuts": scene_cuts,
         "palette": palette,
-        "on_cam_presence": face_hits / max(face_checks, 1),
+        "on_cam_presence": on_cam,
+        "face_avg_area_ratio": round(face_avg_area, 4),
+        "face_center_offset": round(face_center, 4),
+        "face_center_x": round(face_center_x, 4),
+        "vertical_crop_safe": round(vertical_crop_safe, 1),
         "hue_means": hue_means,
         "sat_means": sat_means,
         "sharpness": sharpness,

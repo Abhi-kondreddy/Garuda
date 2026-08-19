@@ -1,0 +1,22 @@
+.titlebar-resources {
+  margin-left: 12px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.titlebar-resources.ticker-pressure-moderate {
+  color: var(--neon);
+  border-color: rgba(0, 240, 255, 0.35);
+}
+
+.titlebar-resources.ticker-pressure-high,
+.titlebar-resources.ticker-pressure-critical {
+  color: #ff9b7d;
+  border-color: rgba(255, 120, 80, 0.45);
+  box-shadow: 0 0 12px rgba(255, 90, 60, 0.12);
+}

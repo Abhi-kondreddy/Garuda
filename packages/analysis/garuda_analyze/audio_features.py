@@ -185,6 +185,12 @@ def analyze_audio(wav_path: Path | None, duration: float) -> dict:
         # Feature extraction hiccup — fall back to the lightweight wave reader.
         return _analyze_wave_fallback(wav_path, duration, empty)
 
+    noise_floor = float(np.percentile(frame_rms, 15)) if frame_rms.size else 0.0
+    signal_level = float(np.percentile(frame_rms, 85)) if frame_rms.size else 0.0
+    snr_proxy = float(
+        max(0.0, min(100.0, 20.0 * np.log10((signal_level + 1e-8) / (noise_floor + 1e-8))))
+    )
+
     return {
         "waveform": waveform,
         "energy": [float(v) for v in frame_rms.tolist()],
@@ -201,6 +207,7 @@ def analyze_audio(wav_path: Path | None, duration: float) -> dict:
         "advanced": advanced,
         "silence_gaps": silence_gaps,
         "sample_rate": sr,
+        "snr_proxy": snr_proxy,
     }
 
 

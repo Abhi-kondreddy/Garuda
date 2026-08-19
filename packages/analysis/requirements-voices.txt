@@ -1,8 +1,13 @@
-# Optional Voices module dependencies (heavy — several GB of models).
+# Optional Voices module dependencies (heavy — several GB of model downloads).
 # Only needed for speaker separation / diarization / enhancement / remix.
+# Install AFTER core requirements.txt:  pip install -r requirements-voices.txt
+# Then in the app: Settings -> Download voice models ON -> Voices -> Re-detect.
+# Gated diarization models need a HuggingFace token:
+#   https://huggingface.co/pyannote/speaker-diarization-3.1
 pedalboard>=0.9.0
 torch>=2.0
 torchaudio>=2.0
-pyannote.audio>=3.1
 speechbrain>=1.0
 deepfilternet>=0.5
+# Optional — better speaker labels (gated HF model, needs a token):
+pyannote.audio>=3.1

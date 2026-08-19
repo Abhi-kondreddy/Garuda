@@ -77,7 +77,7 @@ export default function ReportScreen({
     <div className="report">
       <header className="report-hero">
         <div>
-          <p className="eyebrow">YouTube companion</p>
+          <p className="eyebrow">Intel briefing</p>
           <h1>{report.sourceName}</h1>
           <p className="muted report-meta mono">
             {fmtTime(report.durationSec)} · {report.width}×{report.height} · {report.fps.toFixed(2)} fps ·{' '}
@@ -240,6 +240,50 @@ export default function ReportScreen({
                 <dt>Scene cuts / min</dt>
                 <dd className="mono">{report.visual.sceneCutRate.toFixed(1)}</dd>
               </div>
+              {report.visual.verticalCropSafe != null && (
+                <div>
+                  <dt>9:16 crop safe</dt>
+                  <dd className="mono">{Math.round(report.visual.verticalCropSafe)}</dd>
+                </div>
+              )}
+            </dl>
+          </section>
+          <section className="panel">
+            <h2>Pacing & hook</h2>
+            <dl className="metric-list">
+              {report.pacing ? (
+                <>
+                  <div>
+                    <dt>Time to first value</dt>
+                    <dd className="mono">
+                      {report.pacing.timeToFirstValueSec != null
+                        ? `${report.pacing.timeToFirstValueSec.toFixed(1)}s`
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Early retention risk</dt>
+                    <dd className="mono">{Math.round(report.pacing.earlyRetentionRisk)}%</dd>
+                  </div>
+                  <div>
+                    <dt>Energy arc</dt>
+                    <dd className="mono">{report.pacing.energyArc}</dd>
+                  </div>
+                  <div>
+                    <dt>Hook pattern</dt>
+                    <dd className="mono">{report.pacing.hookPattern.replace(/_/g, ' ')}</dd>
+                  </div>
+                  <div>
+                    <dt>Pattern interrupts (15s)</dt>
+                    <dd className="mono">{report.pacing.patternInterrupts15s}</dd>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <dt>Pacing</dt>
+                  <dd className="muted">Re-analyze to generate pacing metrics.</dd>
+                </div>
+              )}
             </dl>
           </section>
           <section className="panel">
@@ -262,6 +306,18 @@ export default function ReportScreen({
                 <dt>Est. WPM</dt>
                 <dd className="mono">{report.audio.estimatedWpm ?? '—'}</dd>
               </div>
+              {report.audio.wpmVariance != null && (
+                <div>
+                  <dt>WPM variance</dt>
+                  <dd className="mono">{report.audio.wpmVariance}</dd>
+                </div>
+              )}
+              {report.audio.snrProxy != null && (
+                <div>
+                  <dt>SNR proxy</dt>
+                  <dd className="mono">{Math.round(report.audio.snrProxy)}</dd>
+                </div>
+              )}
             </dl>
             {languageBreakdown.length > 0 && (
               <div className="lang-bar" aria-hidden>

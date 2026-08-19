@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import jsonio
+from .performance import configure_performance
 from .pipeline import run_pipeline
 
 
@@ -53,7 +54,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Disable per-word timestamps (faster, but no word-level captions)",
     )
     parser.set_defaults(word_timestamps=True)
+    parser.add_argument(
+        "--performance-mode",
+        default=None,
+        choices=["eco", "balanced", "high"],
+        help="Eco = slower & lighter on CPU; high = full speed. Same analysis depth.",
+    )
     args = parser.parse_args(argv)
+    configure_performance(args.performance_mode)
 
     emit = _make_emit()
 

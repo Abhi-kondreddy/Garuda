@@ -15,7 +15,10 @@ import type {
   EditProject,
   EditProjectSummary,
   EditClip,
-  EditExportOptions
+  EditExportOptions,
+  SystemHardwareInfo,
+  SystemResourceSnapshot,
+  PerformanceMode
 } from '../shared/types'
 
 export interface GarudaApi {
@@ -34,6 +37,22 @@ export interface GarudaApi {
   clearAllData: () => Promise<DataStats>
   openDataFolder: () => Promise<void>
   getAppInfo: () => Promise<AppInfo>
+  getSystemHardware: () => Promise<SystemHardwareInfo>
+  getSystemResources: () => Promise<SystemResourceSnapshot>
+  setPerformanceOverride: (
+    mode: PerformanceMode | null,
+    force?: boolean
+  ) => Promise<{ mode: PerformanceMode | null; applied: boolean; jobActive: boolean; force?: boolean }>
+  getPerformanceOverride: () => Promise<{
+    active: boolean
+    mode: string | null
+    force: boolean
+    at: string | null
+    jobActive: boolean
+    path: string
+  }>
+  clearPerformanceOverride: () => Promise<boolean>
+  cancelAllGarudaJobs: () => Promise<{ analysis: boolean; editor: boolean; voices: boolean }>
   voicesGetManifest: (reportPath: string) => Promise<SpeakersManifest | null>
   voicesGetProject: (reportPath: string) => Promise<VoicesProject | null>
   voicesSaveProject: (reportPath: string, project: VoicesProject) => Promise<VoicesProject>
@@ -45,13 +64,23 @@ export interface GarudaApi {
   voicesCancel: () => Promise<boolean>
   voicesRevealExport: (outputPath: string) => Promise<void>
   voicesLatestExport: (reportPath: string) => Promise<string | null>
+  voicesJobStatus: () => Promise<{
+    running: boolean
+    kind: 'analyze' | 'preview' | 'solo' | 'export' | 'unknown' | null
+    reportDir: string | null
+    startedAt: number | null
+    progress: VoicesProgressEvent | null
+  }>
   editorList: () => Promise<EditProjectSummary[]>
   editorCreate: (name?: string) => Promise<EditProject>
   editorLoad: (projectPath: string) => Promise<EditProject>
   editorSave: (project: EditProject) => Promise<EditProject>
   editorDelete: (projectPath: string) => Promise<EditProjectSummary[]>
   editorOpenVideos: () => Promise<EditClip[]>
-  editorPropose: (projectPath: string, opts?: { quick?: boolean }) => Promise<boolean>
+  editorPropose: (
+    projectPath: string,
+    opts?: { quick?: boolean; withAsr?: boolean; forceReanalyze?: boolean }
+  ) => Promise<boolean>
   editorExport: (
     projectPath: string,
     outputId: string,
@@ -91,6 +120,13 @@ const api: GarudaApi = {
   clearAllData: () => ipcRenderer.invoke('data:clearAll'),
   openDataFolder: () => ipcRenderer.invoke('data:openFolder'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
+  getSystemHardware: () => ipcRenderer.invoke('system:hardware'),
+  getSystemResources: () => ipcRenderer.invoke('system:resources'),
+  setPerformanceOverride: (mode, force) =>
+    ipcRenderer.invoke('system:setPerformanceOverride', mode, force ?? false),
+  getPerformanceOverride: () => ipcRenderer.invoke('system:getPerformanceOverride'),
+  clearPerformanceOverride: () => ipcRenderer.invoke('system:clearPerformanceOverride'),
+  cancelAllGarudaJobs: () => ipcRenderer.invoke('system:cancelAllJobs'),
   voicesGetManifest: (reportPath) => ipcRenderer.invoke('voices:getManifest', reportPath),
   voicesGetProject: (reportPath) => ipcRenderer.invoke('voices:getProject', reportPath),
   voicesSaveProject: (reportPath, project) =>
@@ -105,6 +141,7 @@ const api: GarudaApi = {
   voicesCancel: () => ipcRenderer.invoke('voices:cancel'),
   voicesRevealExport: (outputPath) => ipcRenderer.invoke('voices:revealExport', outputPath),
   voicesLatestExport: (reportPath) => ipcRenderer.invoke('voices:latestExport', reportPath),
+  voicesJobStatus: () => ipcRenderer.invoke('voices:jobStatus'),
   editorList: () => ipcRenderer.invoke('editor:list'),
   editorCreate: (name) => ipcRenderer.invoke('editor:create', name),
   editorLoad: (projectPath) => ipcRenderer.invoke('editor:load', projectPath),

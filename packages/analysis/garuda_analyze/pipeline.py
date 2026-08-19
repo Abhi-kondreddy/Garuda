@@ -12,7 +12,9 @@ from .asr import run_asr
 from .audio_features import analyze_audio
 from .detectors import detect_scenes
 from .frames import analyze_frames
+from .performance import yield_stage
 from .preflight import preflight
+from .progress_timing import ProgressTimer
 from .scoring import build_report
 from .validation import write_report
 from .watchdog import Watchdog
@@ -202,11 +204,15 @@ def run_pipeline(
     word_timestamps: bool = True,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    t0 = time.time()
+    timer = ProgressTimer()
+
+    def push(evt: dict) -> None:
+        timer.enrich(evt)
+        emit(evt)
 
     def _warn(stage: str, message: str) -> None:
         """Report a recoverable stage failure without aborting the whole run."""
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": stage,
@@ -218,7 +224,7 @@ def run_pipeline(
             }
         )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "ingest",
@@ -235,7 +241,8 @@ def run_pipeline(
     )
     watchdog = Watchdog(budget_sec=budget, memory_limit_mb=config.ANALYSIS_MEMORY_LIMIT_MB)
     pf = preflight(meta)
-    emit(
+    yield_stage()
+    push(
         {
             "type": "progress",
             "stage": "ingest",
@@ -250,7 +257,7 @@ def run_pipeline(
 
     wav_path = out_dir / "audio.wav"
     if meta["has_audio"]:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "audio_extract",
@@ -262,7 +269,7 @@ def run_pipeline(
             }
         )
         def extract_progress(pct: float, eta: float | None) -> None:
-            emit(
+            push(
                 {
                     "type": "progress",
                     "stage": "audio_extract",
@@ -277,7 +284,7 @@ def run_pipeline(
         _extract_audio(
             ffmpeg, video_path, wav_path, duration=meta["duration"], on_progress=extract_progress
         )
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "audio_extract",
@@ -289,7 +296,7 @@ def run_pipeline(
             }
         )
     else:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "audio_extract",
@@ -301,8 +308,10 @@ def run_pipeline(
             }
         )
 
+    yield_stage()
+
     def visual_progress(pct: float, message: str) -> None:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "visual",
@@ -336,10 +345,11 @@ def run_pipeline(
         except Exception:
             pass
     watchdog.check("visual")
+    yield_stage()
 
     transcript = []
     if meta["has_audio"] and wav_path.exists() and not skip_asr:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "asr",
@@ -358,7 +368,7 @@ def run_pipeline(
             phase: str | None = None,
             phase_percent: float | None = None,
         ) -> None:
-            emit(
+            push(
                 {
                     "type": "progress",
                     "stage": "asr",
@@ -381,7 +391,7 @@ def run_pipeline(
         except Exception as exc:  # noqa: BLE001 — ASR is best-effort
             _warn("asr", f"ASR failed ({exc.__class__.__name__}) — continuing without transcript")
             transcript = []
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "asr",
@@ -393,7 +403,7 @@ def run_pipeline(
             }
         )
     else:
-        emit(
+        push(
             {
                 "type": "progress",
                 "stage": "asr",
@@ -405,7 +415,7 @@ def run_pipeline(
             }
         )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "audio_features",
@@ -421,7 +431,8 @@ def run_pipeline(
     except Exception as exc:  # noqa: BLE001 — degrade to empty audio metrics
         _warn("audio_features", f"Audio analysis failed ({exc.__class__.__name__}) — partial report")
         audio_data = analyze_audio(None, meta["duration"])
-    emit(
+    yield_stage()
+    push(
         {
             "type": "progress",
             "stage": "audio_features",
@@ -433,7 +444,7 @@ def run_pipeline(
         }
     )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "scoring",
@@ -453,7 +464,7 @@ def run_pipeline(
         transcript=transcript,
     )
     watchdog.check("scoring")
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "scoring",
@@ -465,7 +476,7 @@ def run_pipeline(
         }
     )
 
-    emit(
+    push(
         {
             "type": "progress",
             "stage": "export",
@@ -537,8 +548,8 @@ def run_pipeline(
         except Exception:
             pass
 
-    elapsed = time.time() - t0
-    emit(
+    elapsed = timer.elapsed()
+    push(
         {
             "type": "progress",
             "stage": "export",

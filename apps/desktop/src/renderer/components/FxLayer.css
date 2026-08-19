@@ -19,15 +19,24 @@
 .fx-aurora-a {
   top: -20%;
   left: -10%;
-  background: radial-gradient(circle, rgba(0, 240, 255, 0.45), transparent 65%);
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.5), transparent 65%);
   animation: auroraDrift 18s ease-in-out infinite alternate;
 }
 
 .fx-aurora-b {
   right: -15%;
   bottom: -25%;
-  background: radial-gradient(circle, rgba(255, 61, 154, 0.28), transparent 65%);
+  background: radial-gradient(circle, rgba(255, 61, 154, 0.32), transparent 65%);
   animation: auroraDrift 22s ease-in-out infinite alternate-reverse;
+}
+
+.fx-hex {
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100' viewBox='0 0 56 100'%3E%3Cpath fill='none' stroke='%2300f0ff' stroke-width='1' d='M28 0 L56 16 L56 48 L28 64 L0 48 L0 16 Z'/%3E%3C/svg%3E");
+  background-size: 56px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 80% 70%, #000 10%, transparent 70%);
 }
 
 @keyframes auroraDrift {

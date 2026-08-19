@@ -2,20 +2,27 @@ import { motion } from 'framer-motion'
 import type { ProgressEvent, AnalysisStage } from '../../shared/types'
 import './ProgressTheater.css'
 
-const STAGES: { id: AnalysisStage; label: string }[] = [
-  { id: 'ingest', label: 'Ingest' },
-  { id: 'audio_extract', label: 'Audio extract' },
-  { id: 'visual', label: 'Visual analysis' },
-  { id: 'asr', label: 'Speech ASR' },
-  { id: 'audio_features', label: 'Audio features' },
-  { id: 'scoring', label: 'Scoring' },
-  { id: 'export', label: 'Export' }
+const STAGES: { id: AnalysisStage; label: string; short: string }[] = [
+  { id: 'ingest', label: 'Ingest', short: 'Ingest' },
+  { id: 'audio_extract', label: 'Audio extract', short: 'Audio' },
+  { id: 'visual', label: 'Visual analysis', short: 'Visual' },
+  { id: 'asr', label: 'Speech ASR', short: 'ASR' },
+  { id: 'audio_features', label: 'Audio features', short: 'Features' },
+  { id: 'scoring', label: 'Scoring', short: 'Score' },
+  { id: 'export', label: 'Export', short: 'Export' }
 ]
 
 interface Props {
   progress: ProgressEvent | null
   overall: number
   stagePercents: Partial<Record<AnalysisStage, number>>
+}
+
+function formatClock(sec: number): string {
+  const s = Math.max(0, Math.ceil(sec))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `${s}s`
 }
 
 function phaseLabel(phase?: string | null): string {
@@ -52,6 +59,7 @@ export default function ProgressTheater({ progress, overall, stagePercents }: Pr
   return (
     <div className="theater">
       <div className="completion">
+        <div className="completion-shine" aria-hidden />
         <div className="completion-meta">
           <span className="completion-label">Completion</span>
           <span className="completion-pct mono">{overall}%</span>
@@ -71,8 +79,29 @@ export default function ProgressTheater({ progress, overall, stagePercents }: Pr
           />
           <div className="completion-glow" style={{ left: `${overall}%` }} />
         </div>
+        <p className="completion-msg">
+          {progress?.message ?? 'Preparing analysis engine…'}
+          <span className="eta mono">
+            {typeof progress?.elapsedSec === 'number' && (
+              <> · {formatClock(progress.elapsedSec)} elapsed</>
+            )}
+            {typeof progress?.etaSec === 'number' && progress.etaSec > 0 && (
+              <> · ~{formatClock(progress.etaSec)} remaining</>
+            )}
+          </span>
+        </p>
+      </div>
 
-        <div className="mini-stack" aria-label="Stage progress">
+      <div className="mini-stack" aria-label="Stage progress">
+        <div className="mini-stack-head">
+          <span className="completion-label">Stage progress</span>
+          {phase && (
+            <span className="mini-phase mono">
+              {phaseLabel(phase)} · {Math.round(phasePercent)}%
+            </span>
+          )}
+        </div>
+        <div className="mini-rows">
           {STAGES.map((stage, i) => {
             const state =
               i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending'
@@ -84,7 +113,9 @@ export default function ProgressTheater({ progress, overall, stagePercents }: Pr
                   : Math.max(0, Math.min(100, stagePercents[stage.id] ?? 0))
             return (
               <div key={stage.id} className={`mini-row ${state}`}>
-                <span className="mini-label">{stage.label}</span>
+                <span className="mini-label" title={stage.label}>
+                  {stage.label}
+                </span>
                 <div className="mini-track">
                   <motion.div
                     className="mini-fill"
@@ -98,7 +129,6 @@ export default function ProgressTheater({ progress, overall, stagePercents }: Pr
             )
           })}
         </div>
-
         {phase && (
           <div className="phase-bar">
             <div className="phase-meta">
@@ -115,48 +145,7 @@ export default function ProgressTheater({ progress, overall, stagePercents }: Pr
             </div>
           </div>
         )}
-
-        <p className="completion-msg">
-          {progress?.message ?? 'Preparing analysis engine…'}
-          {typeof progress?.etaSec === 'number' && progress.etaSec > 0 && (
-            <span className="eta mono"> · ~{Math.ceil(progress.etaSec)}s remaining</span>
-          )}
-        </p>
       </div>
-
-      <ol className="stage-rail">
-        {STAGES.map((stage, i) => {
-          const state =
-            i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending'
-          const pct =
-            state === 'done'
-              ? 100
-              : state === 'active'
-                ? Math.round(stagePercents[stage.id] ?? progress?.percent ?? 0)
-                : 0
-          return (
-            <li key={stage.id} className={`stage ${state}`}>
-              <span className="stage-dot" />
-              <div className="stage-body">
-                <span className="stage-label">{stage.label}</span>
-                {(state === 'active' || state === 'done') && (
-                  <span className="stage-pct mono">{pct}%</span>
-                )}
-                {state === 'active' && (
-                  <div className="stage-mini-track">
-                    <motion.div
-                      className="stage-mini-fill"
-                      initial={false}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ type: 'spring', stiffness: 120, damping: 22 }}
-                    />
-                  </div>
-                )}
-              </div>
-            </li>
-          )
-        })}
-      </ol>
     </div>
   )
 }

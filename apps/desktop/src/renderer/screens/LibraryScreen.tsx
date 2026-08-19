@@ -74,9 +74,9 @@ export default function LibraryScreen({
     <div className="library">
       <header className="library-head">
         <div>
-          <p className="eyebrow">Archive</p>
+          <p className="eyebrow">Signal archive</p>
           <h1>Library</h1>
-          <p className="muted library-sub">All local analysis reports stored on this machine.</p>
+          <p className="muted library-sub">Local analysis logs stored on this machine.</p>
         </div>
         <div className="library-actions">
           <button className="ghost-btn" type="button" onClick={onRefresh}>

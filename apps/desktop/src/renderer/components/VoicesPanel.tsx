@@ -21,6 +21,18 @@ function fmtDur(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+function reportDirOf(reportPath: string): string {
+  const i = Math.max(reportPath.lastIndexOf('/'), reportPath.lastIndexOf('\\'))
+  return i >= 0 ? reportPath.slice(0, i) : reportPath
+}
+
+function asJobKind(
+  kind: string | null | undefined
+): 'idle' | 'analyze' | 'preview' | 'solo' | 'export' {
+  if (kind === 'analyze' || kind === 'preview' || kind === 'solo' || kind === 'export') return kind
+  return 'analyze'
+}
+
 const SLIDERS: Array<{ key: keyof VoiceFxParams; label: string; min: number; max: number; step: number }> =
   [
     { key: 'gainDb', label: 'Gain', min: -12, max: 12, step: 0.5 },
@@ -61,12 +73,60 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
     }
   }, [reportPath, onPreviewMixReady])
 
+  const reconnectRunningJob = useCallback(async (): Promise<boolean> => {
+    try {
+      const status = await window.garuda.voicesJobStatus?.()
+      if (!status?.running) return false
+      const mine = reportDirOf(reportPath)
+      if (status.reportDir && status.reportDir !== mine) {
+        setBusy(false)
+        setJobKind('idle')
+        pendingJob.current = 'idle'
+        setProgress(null)
+        setError(
+          'A voices job is already running on another report. Cancel it or wait for it to finish.'
+        )
+        return true
+      }
+      const kind = asJobKind(status.kind)
+      setError(null)
+      setBusy(true)
+      setJobKind(kind)
+      pendingJob.current = kind
+      setProgress(
+        status.progress ?? {
+          type: 'progress',
+          stage: kind,
+          percent: 1,
+          message: `Resuming ${kind}…`
+        }
+      )
+      return true
+    } catch {
+      // Preload/main not ready (e.g. HMR) — treat as idle so Detect still works
+      return false
+    }
+  }, [reportPath])
+
   useEffect(() => {
     void refresh()
   }, [refresh])
 
   useEffect(() => {
-    const offP = window.garuda.onVoicesProgress((evt) => setProgress(evt))
+    void reconnectRunningJob()
+  }, [reconnectRunningJob])
+
+  useEffect(() => {
+    const offP = window.garuda.onVoicesProgress((evt) => {
+      setBusy(true)
+      setError(null)
+      setProgress(evt)
+      if (pendingJob.current === 'idle') {
+        const kind = asJobKind(evt.stage)
+        setJobKind(kind)
+        pendingJob.current = kind
+      }
+    })
     const offD = window.garuda.onVoicesDone(async (evt) => {
       setBusy(false)
       setProgress(null)
@@ -86,6 +146,10 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
       await refresh()
     })
     const offE = window.garuda.onVoicesError((evt) => {
+      if (String(evt.message).includes('already running')) {
+        void reconnectRunningJob()
+        return
+      }
       setBusy(false)
       setJobKind('idle')
       pendingJob.current = 'idle'
@@ -97,6 +161,7 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
       setJobKind('idle')
       pendingJob.current = 'idle'
       setProgress(null)
+      setError(null)
     })
     return () => {
       offP()
@@ -104,7 +169,7 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
       offE()
       offC()
     }
-  }, [refresh])
+  }, [refresh, reconnectRunningJob])
 
   const selected = manifest?.speakers.find((s) => s.id === selectedId) ?? null
   const fx: VoiceFxParams =
@@ -125,7 +190,24 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
     void persistFx(next)
   }
 
+  const cancelJob = () => {
+    void window.garuda.voicesCancel()
+    setBusy(false)
+    setJobKind('idle')
+    pendingJob.current = 'idle'
+    setProgress(null)
+    setError(null)
+  }
+
   const runJob = async (kind: typeof jobKind, start: () => Promise<unknown>) => {
+    let adopted = false
+    try {
+      adopted = await reconnectRunningJob()
+    } catch {
+      adopted = false
+    }
+    if (adopted) return
+
     setError(null)
     setBusy(true)
     setJobKind(kind)
@@ -137,6 +219,7 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
       setBusy(false)
       setJobKind('idle')
       pendingJob.current = 'idle'
+      setProgress(null)
       setError(e instanceof Error ? e.message : 'Job failed')
     }
   }
@@ -187,19 +270,35 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
             <p className="muted">
               Detect overlapping speakers, isolate stems, then shape each voice before export.
             </p>
-            <button className="primary-btn" type="button" disabled={busy || !reportPath} onClick={detect}>
-              Detect voices
-            </button>
+            <div className="voices-actions">
+              <button className="primary-btn" type="button" disabled={busy || !reportPath} onClick={detect}>
+                {busy && jobKind === 'analyze' ? 'Detecting…' : 'Detect voices'}
+              </button>
+              {busy && (
+                <button className="ghost-btn" type="button" onClick={cancelJob}>
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <>
             <div className="voices-mode-row">
-              <span className={`voices-mode mono ${manifest.mode}`}>{manifest.mode}</span>
+              <span className={`voices-mode mono ${manifest.mode}`}>
+                {manifest.mode === 'separated' ? 'NEURAL' : 'STFT MASKED'}
+              </span>
               <button className="ghost-btn" type="button" disabled={busy} onClick={detect}>
                 Re-detect
               </button>
             </div>
             {manifest.warning && <p className="voices-warn">{manifest.warning}</p>}
+            {manifest.mode === 'masked' && (
+              <p className="voices-hint muted">
+                Soft isolation from who-spoke-when. For stronger overlap cleanup on 2–4 voices,
+                install torch + speechbrain in the analysis venv, keep Download voice models on,
+                then Re-detect.
+              </p>
+            )}
             <ul className="voices-list">
               {manifest.speakers.map((spk) => (
                 <li key={spk.id}>
@@ -318,12 +417,36 @@ export default function VoicesPanel({ reportPath, onPreviewMixReady, onPlayMix }
 
       {(busy || progress) && (
         <div className="voices-progress">
-          <div className="voices-progress-bar">
-            <span style={{ width: `${Math.min(100, progress?.percent ?? 8)}%` }} />
+          <div className="voices-progress-head">
+            <span className="mono voices-progress-pct">
+              {Math.round(Math.min(100, progress?.percent ?? 0))}%
+            </span>
+            {typeof progress?.phasePercent === 'number' && (
+              <span className="mono muted voices-progress-phase-label">
+                {progress.phase === 'sepformer'
+                  ? 'pass'
+                  : progress.phase === 'cascade'
+                    ? 'cascade'
+                    : progress.phase || 'phase'}{' '}
+                {Math.round(progress.phasePercent)}%
+              </span>
+            )}
           </div>
+          <div
+            className={`voices-progress-bar${
+              progress?.phase === 'sepformer' ? ' voices-progress-bar--live' : ''
+            }`}
+          >
+            <span style={{ width: `${Math.min(100, Math.max(4, progress?.percent ?? 8))}%` }} />
+          </div>
+          {typeof progress?.phasePercent === 'number' && (
+            <div className="voices-progress-phase">
+              <span style={{ width: `${Math.min(100, Math.max(2, progress.phasePercent))}%` }} />
+            </div>
+          )}
           <div className="voices-progress-meta">
             <span className="mono">{progress?.message ?? 'Working…'}</span>
-            <button className="ghost-btn" type="button" onClick={() => void window.garuda.voicesCancel()}>
+            <button className="ghost-btn" type="button" onClick={cancelJob}>
               Cancel
             </button>
           </div>

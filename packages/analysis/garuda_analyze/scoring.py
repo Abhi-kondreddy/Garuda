@@ -11,6 +11,7 @@ from .asr import language_label, refine_transcript_languages
 from .framing import build_framing
 from .fusion import build_drop_risk
 from .metrics import REGISTRY, Metric
+from .pacing_metrics import build_pacing_metrics
 from .provenance import build_provenance
 from .retention import build_retention_curve
 from .seeding import seed_everything
@@ -201,6 +202,10 @@ def build_report(
     static_ratio = float(np.mean(motion_arr <= max(motion_thr, config.STATIC_MOTION_FLOOR)))
 
     on_cam = float(frame_data.get("on_cam_presence") or 0.0)
+    face_avg_area = float(frame_data.get("face_avg_area_ratio") or 0.0)
+    face_center_offset = float(frame_data.get("face_center_offset") or 0.5)
+    face_center_x = float(frame_data.get("face_center_x") or 0.5)
+    vertical_crop_safe = float(frame_data.get("vertical_crop_safe") or 50.0)
 
     # Color evenness is weighted separately in `overall`, so exclude it here to
     # avoid double-counting.
@@ -333,6 +338,27 @@ def build_report(
         speech_dur += max(0.0, float(seg["end"]) - float(seg["start"]))
     wpm = int(round(words / (speech_dur / 60.0))) if speech_dur > 1 else None
 
+    wpm_variance: float | None = None
+    if transcript and len(transcript) >= 2:
+        seg_wpms: list[float] = []
+        for seg in transcript:
+            seg_words = len((seg.get("text") or "").split())
+            seg_dur = max(0.01, float(seg["end"]) - float(seg["start"]))
+            if seg_words >= 3:
+                seg_wpms.append(seg_words / (seg_dur / 60.0))
+        if len(seg_wpms) >= 2:
+            wpm_variance = round(float(np.std(seg_wpms)), 1)
+
+    snr_proxy = float(audio_data.get("snr_proxy") or 0.0)
+
+    pacing = build_pacing_metrics(
+        duration=duration,
+        timeline=timeline,
+        cuts=cuts,
+        transcript=transcript,
+        on_cam=on_cam,
+    )
+
     clarity = float(audio_data.get("clarity") or 0.0)
     loudness = float(audio_data.get("loudness_consistency") or 0.0)
     dead = float(audio_data.get("dead_air_ratio") or 0.0)
@@ -434,6 +460,10 @@ def build_report(
             "sceneCutRate": round(scene_cut_rate, 2),
             "staticStretchRatio": round(static_ratio, 3),
             "onCamPresence": round(on_cam, 3),
+            "faceAvgAreaRatio": round(face_avg_area, 4),
+            "faceCenterOffset": round(face_center_offset, 4),
+            "faceCenterX": round(face_center_x, 4),
+            "verticalCropSafe": round(vertical_crop_safe, 1),
         },
         "audio": {
             "loudnessConsistency": round(loudness, 1),
@@ -447,6 +477,8 @@ def build_report(
             "otherPercent": round(other_p, 1),
             "languageBreakdown": language_breakdown,
             "estimatedWpm": wpm,
+            "wpmVariance": wpm_variance,
+            "snrProxy": round(snr_proxy, 1),
             "silenceGaps": audio_data.get("silence_gaps") or [],
             "lufs": audio_data.get("lufs"),
             "lufsTarget": config.LUFS_TARGETS.get("youtube"),
@@ -457,6 +489,7 @@ def build_report(
             ),
             "delivery": audio_data.get("delivery") or {},
         },
+        "pacing": pacing,
         "timeline": timeline,
         "waveform": audio_data.get("waveform") or [],
         "transcript": transcript,

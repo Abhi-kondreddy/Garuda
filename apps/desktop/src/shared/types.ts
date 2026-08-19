@@ -13,6 +13,7 @@ export interface ProgressEvent {
   percent: number
   message: string
   etaSec?: number | null
+  elapsedSec?: number | null
   /** Optional finer-grained task inside a stage (e.g. download, transcribe). */
   phase?: string | null
   phasePercent?: number | null
@@ -100,6 +101,8 @@ export interface AudioMetrics {
   otherPercent: number
   languageBreakdown?: LanguageShare[]
   estimatedWpm: number | null
+  wpmVariance?: number | null
+  snrProxy?: number | null
   silenceGaps: Array<{ start: number; end: number }>
   /** Integrated loudness (EBU R128) and platform target in LUFS. */
   lufs?: number | null
@@ -116,6 +119,31 @@ export interface VisualMetrics {
   sceneCutRate: number
   staticStretchRatio: number
   onCamPresence: number
+  faceAvgAreaRatio?: number
+  faceCenterOffset?: number
+  faceCenterX?: number
+  verticalCropSafe?: number
+}
+
+export interface PacingSegmentCuts {
+  label: string
+  start: number
+  end: number
+  cutsPerMin: number
+}
+
+export interface PacingMetrics {
+  timeToFirstValueSec: number | null
+  speechOnsetSec: number | null
+  earlyRetentionRisk: number
+  patternInterrupts15s: number
+  firstFramePunch: number
+  energyArc: 'rising' | 'falling' | 'flat' | string
+  energyByThird: { open: number; middle: number; close: number }
+  cutRateBySegment: PacingSegmentCuts[]
+  hookPattern: string
+  onCamPresence: number
+  notes: string[]
 }
 
 export interface Chapter {
@@ -250,6 +278,7 @@ export interface AnalysisReport {
   }
   visual: VisualMetrics
   audio: AudioMetrics
+  pacing?: PacingMetrics
   timeline: TimelinePoint[]
   waveform: number[]
   transcript: TranscriptSegment[]
@@ -681,6 +710,8 @@ export interface EditProject {
   briefing: EditBriefing
   outputs: EditOutput[]
   status: 'draft' | 'proposed' | 'exported'
+  /** Computed on load — not persisted */
+  staleClipCount?: number
 }
 
 export interface EditProjectSummary {
@@ -811,8 +842,18 @@ export function normalizeEditProject(raw: EditProject): EditProject {
   }
 }
 
+export type PerformanceMode = 'eco' | 'balanced' | 'high'
+
+export type ResourceGuardMode = 'off' | 'warn' | 'auto_eco'
+
+export type ResourceGuardTrigger = 'high' | 'critical'
+
 export interface AppSettings {
   whisperModel: 'tiny' | 'base' | 'small'
+  performanceMode: PerformanceMode
+  /** React when live system pressure hits the trigger level. */
+  resourceGuard: ResourceGuardMode
+  resourceGuardTrigger: ResourceGuardTrigger
   autoplay: boolean
   recentLimit: number
   confirmDelete: boolean
@@ -834,8 +875,47 @@ export interface AppInfo {
   platform: string
 }
 
+export type ResourcePressure = 'ok' | 'moderate' | 'high' | 'critical'
+
+export interface SystemHardwareInfo {
+  chip: string
+  physicalCores: number
+  logicalCores: number
+  totalRamBytes: number
+  gpu: string
+  platform: string
+}
+
+export interface SystemProcessUsage {
+  pid: number
+  name: string
+  cpuPercent: number
+  memoryPercent: number
+}
+
+export interface SystemResourceSnapshot {
+  at: string
+  cpuPercent: number
+  loadAvg1: number
+  loadPerCore: number
+  memoryUsedBytes: number
+  memoryFreeBytes: number
+  memoryUsedPercent: number
+  pressure: ResourcePressure
+  thermalWarning: boolean
+  onBattery: boolean
+  batteryPercent: number | null
+  garudaProcesses: SystemProcessUsage[]
+  garudaCpuPercent: number
+  advice: string[]
+  garudaJobActive: boolean
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   whisperModel: 'tiny',
+  performanceMode: 'balanced',
+  resourceGuard: 'warn',
+  resourceGuardTrigger: 'critical',
   autoplay: true,
   recentLimit: 8,
   confirmDelete: true,
@@ -920,6 +1000,8 @@ export interface VoicesProgressEvent {
   stage: string
   percent: number
   message: string
+  etaSec?: number | null
+  elapsedSec?: number | null
   phase?: string | null
   phasePercent?: number | null
   clipIndex?: number | null

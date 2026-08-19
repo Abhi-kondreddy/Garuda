@@ -6,6 +6,7 @@ import sys
 import traceback
 from pathlib import Path
 
+from ..performance import configure_performance
 
 def _emit(obj: dict) -> None:
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
@@ -29,6 +30,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip per-clip analysis; metadata heuristics only",
     )
+    p_propose.add_argument(
+        "--performance-mode",
+        default=None,
+        choices=["eco", "balanced", "high"],
+        help="Throttle CPU use without changing analysis depth.",
+    )
 
     p_export = sub.add_parser("export", help="Export one output via FFmpeg")
     p_export.add_argument("--project", required=True)
@@ -39,8 +46,14 @@ def main(argv: list[str] | None = None) -> int:
     p_export.add_argument("--resolution", default="1080", choices=["720", "1080", "1440"])
     p_export.add_argument("--burn-title", default="1", choices=["0", "1"])
     p_export.add_argument("--fps", type=int, default=30, choices=[24, 30, 60])
+    p_export.add_argument(
+        "--performance-mode",
+        default=None,
+        choices=["eco", "balanced", "high"],
+    )
 
     args = parser.parse_args(argv)
+    configure_performance(getattr(args, "performance_mode", None))
 
     try:
         project_path = Path(args.project)
